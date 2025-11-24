@@ -6,28 +6,134 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar } from "lucide-react";
+import { Calendar, Loader2 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { useApi } from "@/services/api";
+import { useToast } from "@/hooks/use-toast";
 
 const Register = () => {
   const navigate = useNavigate();
+  const { login, isAuthenticated, user, loading: authLoading } = useAuth();
+  const { usuarios, clientes, profesionales } = useApi();
+  const { toast } = useToast();
+
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
-    name: "",
+    nombre: "",
+    apellido: "",
     email: "",
-    password: "",
+    foto_url: "",
     userType: "cliente",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  /**
+   * Paso 1: Login con Azure AD
+   */
+  const handleAzureLogin = async () => {
+    try {
+      setLoading(true);
+      await login();
+
+      toast({
+        title: '¡Bienvenido!',
+        description: 'Has iniciado sesión con Azure AD correctamente',
+      });
+    } catch (error: any) {
+      console.error('Error en login:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error al iniciar sesión',
+        description: error.message || 'No se pudo conectar con Azure AD',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Paso 2: Registro en el backend
+   */
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implement registration system
-    console.log("Registration attempt:", formData);
-    navigate(formData.userType === "profesional" ? "/dashboard" : "/profesionales");
+
+    if (!user) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Debes iniciar sesión con Azure AD primero',
+      });
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Generar IDs únicos
+      const userId = crypto.randomUUID();
+      const tipoUsuarioId = crypto.randomUUID();
+
+      // Separar nombre y apellido
+      const [nombre, ...apellidoParts] = formData.nombre.split(' ');
+      const apellido = apellidoParts.join(' ') || formData.apellido;
+
+      // Crear usuario
+      const usuarioData = {
+        id_usuario: userId,
+        nombre: nombre || formData.nombre,
+        apellido: apellido,
+        correo: formData.email,
+        clave: 'AZURE_AD', // No se usa clave porque usamos Azure AD
+        id_rol: '1', // Rol por defecto
+        foto_url: formData.foto_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + userId, // Avatar por defecto
+      };
+
+      console.log('Creando usuario:', usuarioData);
+      await usuarios.create(userId, usuarioData);
+
+      // Crear cliente o profesional según el tipo
+      if (formData.userType === 'cliente') {
+        const clienteData = {
+          id_usuario_cliente: tipoUsuarioId,
+          id_usuario: userId,
+        };
+        console.log('Creando cliente:', clienteData);
+        await clientes.create(tipoUsuarioId, clienteData);
+      } else {
+        const profesionalData = {
+          id_usuario_profesional: tipoUsuarioId,
+          id_usuario: userId,
+          id_profesion: '1', // TODO: Seleccionar profesión
+          id_servicio_profesional: '1',
+          id_rubro: '1',
+        };
+        console.log('Creando profesional:', profesionalData);
+        await profesionales.create(tipoUsuarioId, profesionalData);
+      }
+
+      toast({
+        title: '¡Registro exitoso!',
+        description: 'Tu cuenta ha sido creada correctamente',
+      });
+
+      // Redirigir según tipo de usuario
+      navigate(formData.userType === "profesional" ? "/dashboard" : "/profesionales");
+
+    } catch (error: any) {
+      console.error('Error en registro:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error al registrar',
+        description: error.message || 'No se pudo crear tu cuenta',
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       <div className="container mx-auto px-4 py-16">
         <div className="max-w-md mx-auto">
           <div className="text-center mb-8">
@@ -47,45 +153,83 @@ const Register = () => {
             <CardHeader>
               <CardTitle>Regístrate gratis</CardTitle>
               <CardDescription>
-                Completa tus datos para comenzar
+                {!isAuthenticated ? 'Primero autentícate con tu cuenta Microsoft' : 'Completa tus datos para comenzar'}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Nombre Completo</Label>
-                  <Input
-                    id="name"
-                    placeholder="Juan Pérez"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    required
-                  />
+              {/* Paso 1: Login con Azure AD */}
+              {!isAuthenticated ? (
+                <div className="space-y-4">
+                  <Button
+                    onClick={handleAzureLogin}
+                    disabled={loading || authLoading}
+                    className="w-full bg-white hover:bg-gray-50 text-gray-900 border border-gray-300"
+                    size="lg"
+                  >
+                    {loading || authLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Conectando...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="mr-2 h-5 w-5" viewBox="0 0 23 23">
+                          <path fill="#f35325" d="M0 0h11v11H0z" />
+                          <path fill="#81bc06" d="M12 0h11v11H12z" />
+                          <path fill="#05a6f0" d="M0 12h11v11H0z" />
+                          <path fill="#ffba08" d="M12 12h11v11H12z" />
+                        </svg>
+                        Iniciar sesión con Microsoft
+                      </>
+                    )}
+                  </Button>
+                  <p className="text-xs text-center text-muted-foreground">
+                    Usamos autenticación segura de Microsoft para proteger tu cuenta
+                  </p>
                 </div>
+              ) : (
+                <>
+                  {/* Confirmación de autenticación */}
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-md mb-4">
+                    <p className="text-sm text-green-700">
+                      ✓ Autenticado como <strong>{user?.username}</strong>
+                    </p>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="tu@email.cl"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    required
-                  />
-                </div>
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="nombre">Nombre</Label>
+                      <Input
+                        id="nombre"
+                        placeholder="Juan"
+                        value={formData.nombre}
+                        onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                        required
+                      />
+                    </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="password">Contraseña</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    required
-                  />
-                </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="apellido">Apellido</Label>
+                      <Input
+                        id="apellido"
+                        placeholder="Pérez"
+                        value={formData.apellido}
+                        onChange={(e) => setFormData({ ...formData, apellido: e.target.value })}
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email</Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        placeholder="tu@email.cl"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        required
+                      />
+                    </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="userType">Me registro como</Label>
@@ -103,10 +247,19 @@ const Register = () => {
                   </Select>
                 </div>
 
-                <Button type="submit" className="w-full" size="lg" variant="accent">
-                  Crear Cuenta
-                </Button>
-              </form>
+                    <Button type="submit" disabled={loading} className="w-full" size="lg" variant="accent">
+                      {loading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Registrando...
+                        </>
+                      ) : (
+                        'Crear Cuenta'
+                      )}
+                    </Button>
+                  </form>
+                </>
+              )}
 
               <div className="mt-6 text-center text-sm">
                 <p className="text-muted-foreground">
@@ -120,10 +273,13 @@ const Register = () => {
                 </p>
               </div>
 
-              <div className="mt-4 p-4 bg-muted rounded-lg text-sm text-muted-foreground">
-                <p className="font-medium mb-1">Nota de Desarrollo:</p>
-                <p>El registro completo se implementará en la próxima fase.</p>
-              </div>
+              {!isAuthenticated && (
+                <div className="mt-4 p-3 bg-muted rounded-md text-sm text-muted-foreground">
+                  <p className="text-center">
+                    Autenticación segura con Microsoft Azure AD
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

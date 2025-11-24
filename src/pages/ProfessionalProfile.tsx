@@ -1,18 +1,78 @@
 import { useParams, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ReviewCard } from "@/components/ReviewCard";
-import { professionals, reviews } from "@/data/mockData";
-import { Star, MapPin, Calendar, DollarSign, Briefcase, Award, ArrowLeft } from "lucide-react";
+import { profesionalService } from "@/services/api";
+import { Star, MapPin, Calendar, DollarSign, Briefcase, Award, ArrowLeft, Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 const ProfessionalProfile = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  
-  const professional = professionals.find((p) => p.id === id);
-  const professionalReviews = reviews.filter((r) => r.professionalId === id);
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
+  const [professional, setProfessional] = useState<any>(null);
+  const professionalReviews: any[] = []; // TODO: Implementar sistema de reseñas
+
+  useEffect(() => {
+    const fetchProfessional = async () => {
+      try {
+        setLoading(true);
+        // Obtener datos del profesional desde el backend
+        const data: any = await profesionalService.get(id!);
+
+        if (data) {
+          setProfessional({
+            id: data.id_usuario_profesional,
+            name: `${data.nombre} ${data.apellido}`,
+            profession: data.id_profesion,
+            image: data.foto_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + data.id_usuario,
+            rating: 5.0,
+            reviewCount: 0,
+            pricePerHour: 30000,
+            location: 'Santiago, Chile',
+            experience: '5+ años',
+            description: 'Profesional con amplia experiencia en el área. Comprometido con brindar el mejor servicio a mis clientes.',
+            services: [data.id_servicio_profesional],
+            availability: [
+              { day: 'Lunes', slots: ['09:00', '10:00', '14:00', '15:00'] },
+              { day: 'Martes', slots: ['09:00', '10:00', '14:00', '15:00'] },
+              { day: 'Miércoles', slots: ['09:00', '10:00', '14:00', '15:00'] }
+            ]
+          });
+        }
+      } catch (error: any) {
+        console.error('Error cargando profesional:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'No se pudo cargar la información del profesional',
+        });
+        setProfessional(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (id) {
+      fetchProfessional();
+    }
+  }, [id, toast]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <div className="container mx-auto px-4 py-16 text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
+          <p>Cargando...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!professional) {
     return (

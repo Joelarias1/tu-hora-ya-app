@@ -1,16 +1,73 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Navbar } from "@/components/Navbar";
 import { ProfessionalCard } from "@/components/ProfessionalCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { professionals, categories } from "@/data/mockData";
-import { Search, SlidersHorizontal } from "lucide-react";
+import { categories } from "@/data/mockData";
+import { profesionalService } from "@/services/api";
+import { Search, SlidersHorizontal, Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 const Professionals = () => {
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("rating");
+  const [loading, setLoading] = useState(true);
+  const [professionals, setProfessionals] = useState<any[]>([]);
+
+  // Cargar profesionales desde el backend
+  useEffect(() => {
+    const fetchProfessionals = async () => {
+      try {
+        setLoading(true);
+
+        // Obtener lista de profesionales con datos de usuario incluidos
+        const professionalsData: any = await profesionalService.list();
+
+        if (!professionalsData || professionalsData.length === 0) {
+          console.log('No hay profesionales en la BD');
+          setProfessionals([]);
+          toast({
+            variant: 'default',
+            title: 'Sin datos',
+            description: 'No hay profesionales registrados en el sistema',
+          });
+        } else {
+          // El backend retorna los datos completos en un solo request
+          const enrichedProfessionals = professionalsData.map((prof: any) => {
+            return {
+              id: prof.id_usuario_profesional,
+              name: `${prof.nombre} ${prof.apellido}`,
+              profession: prof.id_profesion,
+              image: prof.foto_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + prof.id_usuario,
+              rating: 5.0,
+              reviewCount: 0,
+              pricePerHour: 30000,
+              location: 'Santiago, Chile',
+              category: prof.id_rubro,
+            };
+          });
+
+          setProfessionals(enrichedProfessionals);
+          console.log(`Cargados ${enrichedProfessionals.length} profesionales desde la BD`);
+        }
+      } catch (error: any) {
+        console.error('Error cargando profesionales:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Error al cargar profesionales',
+          description: error.message || 'No se pudo conectar con el servidor',
+        });
+        setProfessionals([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfessionals();
+  }, [toast]);
 
   const filteredAndSortedProfessionals = useMemo(() => {
     let filtered = professionals;
@@ -47,7 +104,7 @@ const Professionals = () => {
     });
 
     return sorted;
-  }, [searchTerm, selectedCategory, sortBy]);
+  }, [searchTerm, selectedCategory, sortBy, professionals]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -60,7 +117,7 @@ const Professionals = () => {
             Encuentra tu Profesional Ideal
           </h1>
           <p className="text-muted-foreground">
-            {filteredAndSortedProfessionals.length} profesionales disponibles
+            {loading ? 'Cargando...' : `${filteredAndSortedProfessionals.length} profesionales disponibles`}
           </p>
         </div>
 
@@ -73,6 +130,7 @@ const Professionals = () => {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-12 h-14 text-base rounded-full border-2 focus:border-accent"
+              disabled={loading}
             />
           </div>
         </div>
@@ -87,7 +145,7 @@ const Professionals = () => {
           <div className="grid md:grid-cols-2 gap-4">
 
             {/* Category Filter */}
-            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+            <Select value={selectedCategory} onValueChange={setSelectedCategory} disabled={loading}>
               <SelectTrigger>
                 <SelectValue placeholder="Todas las categorías" />
               </SelectTrigger>
@@ -102,7 +160,7 @@ const Professionals = () => {
             </Select>
 
             {/* Sort */}
-            <Select value={sortBy} onValueChange={setSortBy}>
+            <Select value={sortBy} onValueChange={setSortBy} disabled={loading}>
               <SelectTrigger>
                 <SelectValue placeholder="Ordenar por" />
               </SelectTrigger>
@@ -123,6 +181,7 @@ const Professionals = () => {
                 setSearchTerm("");
                 setSelectedCategory("all");
               }}
+              disabled={loading}
             >
               Limpiar Filtros
             </Button>
@@ -130,7 +189,11 @@ const Professionals = () => {
         </div>
 
         {/* Results */}
-        {filteredAndSortedProfessionals.length > 0 ? (
+        {loading ? (
+          <div className="flex justify-center items-center py-16">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+        ) : filteredAndSortedProfessionals.length > 0 ? (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {filteredAndSortedProfessionals.map((professional) => (
               <ProfessionalCard
