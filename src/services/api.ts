@@ -200,6 +200,24 @@ export const pagosService = {
 };
 
 /**
+ * Servicio de Autenticación
+ */
+export const authService = {
+  login: (correo: string, clave: string) =>
+    apiClient.post(`/usuario/login`, { correo, clave }),
+  azureSync: (correo: string, nombre: string, accessToken: string) =>
+    apiClient.post(`/usuario/azure-sync`, { correo, nombre, accessToken }),
+  completeOnboarding: (userId: string, data: {
+    nombre: string;
+    apellido: string;
+    telefono?: string;
+    foto_url?: string;
+    userType: string;
+  }) =>
+    apiClient.put(`/usuario/${userId}/complete-onboarding`, data),
+};
+
+/**
  * Hook para usar el API client con autenticación automática
  */
 export const useApi = () => {
@@ -210,5 +228,6 @@ export const useApi = () => {
     profesiones: profesionService,
     citas: citaService,
     pagos: pagosService,
+    auth: authService,
   };
 };

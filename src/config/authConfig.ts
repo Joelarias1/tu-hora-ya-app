@@ -2,14 +2,16 @@ import { Configuration, PopupRequest } from '@azure/msal-browser';
 import { AZURE_AD_CONFIG } from './constants';
 
 /**
- * Configuración de MSAL para Azure AD
+ * Configuración de MSAL para Azure AD B2C (CIAM - External ID)
  */
 export const msalConfig: Configuration = {
   auth: {
-    clientId: AZURE_AD_CONFIG.CLIENT_ID || 'YOUR_CLIENT_ID_HERE', // TODO: Agregar desde Azure Portal
+    clientId: AZURE_AD_CONFIG.CLIENT_ID,
     authority: AZURE_AD_CONFIG.AUTHORITY,
     redirectUri: AZURE_AD_CONFIG.REDIRECT_URI,
-    postLogoutRedirectUri: AZURE_AD_CONFIG.REDIRECT_URI,
+    postLogoutRedirectUri: AZURE_AD_CONFIG.POST_LOGOUT_REDIRECT_URI,
+    // knownAuthorities es requerido para Azure AD B2C/CIAM External ID
+    knownAuthorities: AZURE_AD_CONFIG.KNOWN_AUTHORITIES,
   },
   cache: {
     cacheLocation: 'sessionStorage', // Usar sessionStorage para el token
@@ -42,6 +44,7 @@ export const msalConfig: Configuration = {
 
 /**
  * Scopes para login
+ * Para CIAM, MSAL añade automáticamente openid, profile, email
  */
 export const loginRequest: PopupRequest = {
   scopes: AZURE_AD_CONFIG.SCOPES,
@@ -55,20 +58,24 @@ export const tokenRequest = {
 };
 
 /**
- * Instrucciones para configurar Azure AD
+ * Instrucciones para configurar Azure AD B2C (CIAM - External ID)
  *
- * PASOS PARA OBTENER TU CLIENT_ID:
+ * CONFIGURACIÓN ACTUAL:
+ * - Authority: https://tuhoraya.ciamlogin.com/
+ * - Client ID: 591c4d94-6709-4fbc-96c6-d1118e76862b
+ * - Known Authorities: tuhoraya.ciamlogin.com
  *
- * 1. Ve a Azure Portal: https://portal.azure.com
- * 2. Navega a "Azure Active Directory" > "App registrations"
- * 3. Busca o crea tu aplicación
- * 4. Copia el "Application (client) ID"
- * 5. En "Authentication", agrega:
+ * NOTAS IMPORTANTES PARA CIAM:
+ * 1. No es necesario configurar scopes adicionales (openid, profile, email se añaden automáticamente)
+ * 2. Microsoft Graph normalmente NO se usa con External ID
+ * 3. Si tienes una API propia, deberás configurar los scopes específicos de tu API
+ * 4. La autenticación se realiza mediante el dominio CIAM personalizado (tuhoraya.ciamlogin.com)
+ *
+ * CONFIGURACIÓN EN AZURE PORTAL:
+ * 1. Ve a Azure Portal > External Identities
+ * 2. En "Authentication", agrega:
  *    - Platform: Single-page application (SPA)
- *    - Redirect URI: http://localhost:8080 (para desarrollo)
- *    - Redirect URI: https://tudominio.com (para producción)
- * 6. En "API permissions", asegúrate de tener:
- *    - Microsoft Graph > User.Read
- *    - Cualquier scope personalizado de tu API
- * 7. Pega el Client ID en src/config/constants.ts
+ *    - Redirect URI: http://localhost:5173 (Vite dev)
+ *    - Redirect URI: https://tudominio.com (producción)
+ * 3. Habilita "Implicit grant" si es necesario para tu flujo
  */

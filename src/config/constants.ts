@@ -127,22 +127,24 @@ export const API_ENDPOINTS = {
 } as const;
 
 // ============================================
-// CONFIGURACIÓN DE AZURE AD
+// CONFIGURACIÓN DE AZURE AD B2C (CIAM - External ID)
 // ============================================
 
 export const AZURE_AD_CONFIG = {
-  TENANT_ID: 'daef8e33-adbe-405e-8773-78df551d2b73',
   CLIENT_ID: '591c4d94-6709-4fbc-96c6-d1118e76862b',
-  AUTHORITY: 'https://login.microsoftonline.com/daef8e33-adbe-405e-8773-78df551d2b73',
+  // Authority para Azure AD B2C/CIAM External ID
+  AUTHORITY: 'https://tuhoraya.ciamlogin.com/',
   REDIRECT_URI: window.location.origin,
+  POST_LOGOUT_REDIRECT_URI: window.location.origin,
 
-  // Scopes que necesitas para tu API
-  SCOPES: [
-    'openid',
-    'profile',
-    'email',
-    // Agregar scopes personalizados de tu API si es necesario
-  ],
+  // Known authorities para CIAM (requerido para External ID)
+  KNOWN_AUTHORITIES: ['tuhoraya.ciamlogin.com'],
+
+  // Scopes para CIAM - MSAL añadirá automáticamente openid, profile, email
+  SCOPES: [],
+
+  // URL de tu API backend (opcional)
+  API_URI: API_CONFIG.BASE_URL,
 } as const;
 
 // ============================================
@@ -174,6 +176,6 @@ if (import.meta.env.DEV) {
     baseUrl: API_CONFIG.BASE_URL,
     bffPath: API_CONFIG.BFF_PATH,
     fullUrl: API_BASE_URL,
-    azureTenant: AZURE_AD_CONFIG.TENANT_ID,
+    azureAuthority: AZURE_AD_CONFIG.AUTHORITY,
   });
 }
