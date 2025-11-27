@@ -200,6 +200,19 @@ export const pagosService = {
 };
 
 /**
+ * Servicio de Rubros (Categorías)
+ */
+export const rubroService = {
+  list: () => apiClient.get(API_ENDPOINTS.RUBRO.LIST),
+  get: (id: string) => apiClient.get(API_ENDPOINTS.RUBRO.GET(id)),
+  create: (id: string, data: any) =>
+    apiClient.post(API_ENDPOINTS.RUBRO.CREATE(id), data),
+  update: (id: string, data: any) =>
+    apiClient.post(API_ENDPOINTS.RUBRO.UPDATE(id), data),
+  delete: (id: string) => apiClient.delete(API_ENDPOINTS.RUBRO.DELETE(id)),
+};
+
+/**
  * Servicio de Autenticación
  */
 export const authService = {
@@ -228,6 +241,7 @@ export const useApi = () => {
     profesiones: profesionService,
     citas: citaService,
     pagos: pagosService,
+    rubros: rubroService,
     auth: authService,
   };
 };

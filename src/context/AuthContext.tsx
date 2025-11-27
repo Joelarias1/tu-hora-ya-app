@@ -13,6 +13,7 @@ interface UserData {
   correo: string;
   foto_url: string | null;
   id_rol: string | null;
+  userType?: 'cliente' | 'profesional' | null;
 }
 
 interface AuthContextType {
