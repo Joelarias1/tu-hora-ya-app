@@ -12,8 +12,16 @@ interface UserData {
   apellido: string;
   correo: string;
   foto_url: string | null;
-  id_rol: string | null;
+  id_rol?: string | null;
   userType?: 'cliente' | 'profesional' | null;
+  telefono?: string | null;
+  profesion?: string;
+  rubro?: string;
+  descripcion?: string;
+  experiencia?: string;
+  pais?: string;
+  ciudad?: string;
+  servicios?: string[];
 }
 
 interface AuthContextType {

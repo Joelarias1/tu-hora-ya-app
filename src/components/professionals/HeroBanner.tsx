@@ -57,9 +57,9 @@ export const HeroBanner = ({
               </div>
             </div>
 
-            {/* Quick Tags */}
+            {/* Quick Tags - Profesiones reales del sistema */}
             <div className="flex flex-wrap justify-center gap-3 mt-6">
-              {['Médicos', 'Psicólogos', 'Dentistas', 'Nutricionistas', 'Abogados', 'Entrenadores'].map((tag) => (
+              {['Psicólogo', 'Dentista', 'Abogado', 'Programador', 'Electricista', 'Chef'].map((tag) => (
                 <button
                   key={tag}
                   onClick={() => onSearchChange(tag)}

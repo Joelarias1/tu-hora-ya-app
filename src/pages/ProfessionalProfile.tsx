@@ -8,6 +8,7 @@ import { ReviewCard } from "@/components/ReviewCard";
 import { profesionalService } from "@/services/api";
 import { Star, MapPin, Calendar, DollarSign, Briefcase, Award, ArrowLeft, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { getInitials, getAvatarColor, isValidImageUrl } from "@/lib/utils/avatar";
 
 const ProfessionalProfile = () => {
   const { id } = useParams();
@@ -15,28 +16,35 @@ const ProfessionalProfile = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [professional, setProfessional] = useState<any>(null);
-  const professionalReviews: any[] = []; // TODO: Implementar sistema de reseñas
+  const professionalReviews: any[] = [];
 
   useEffect(() => {
     const fetchProfessional = async () => {
       try {
         setLoading(true);
-        // Obtener datos del profesional desde el backend
         const data: any = await profesionalService.get(id!);
 
         if (data) {
+          const serviciosList = data.servicios
+            ? data.servicios.split(',').map((s: string) => s.trim()).filter(Boolean)
+            : [data.id_servicio_profesional].filter(Boolean);
+
+          const locationParts = [data.ciudad, data.pais].filter(Boolean);
+          const location = locationParts.length > 0 ? locationParts.join(', ') : 'Sin ubicación';
+
           setProfessional({
             id: data.id_usuario_profesional,
-            name: `${data.nombre} ${data.apellido}`,
-            profession: data.id_profesion,
-            image: data.foto_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + data.id_usuario,
+            name: `${data.nombre || ''} ${data.apellido || ''}`.trim(),
+            profession: data.id_profesion || 'Profesional',
+            rubro: data.id_rubro,
+            image: data.foto_url || null,
             rating: 5.0,
             reviewCount: 0,
-            pricePerHour: 30000,
-            location: 'Santiago, Chile',
-            experience: '5+ años',
-            description: 'Profesional con amplia experiencia en el área. Comprometido con brindar el mejor servicio a mis clientes.',
-            services: [data.id_servicio_profesional],
+            pricePerHour: data.precioHora || 0,
+            location,
+            experience: data.experiencia || 'Sin especificar',
+            description: data.descripcion || 'Este profesional aún no ha agregado una descripción.',
+            services: serviciosList.length > 0 ? serviciosList : ['Sin servicios especificados'],
             availability: [
               { day: 'Lunes', slots: ['09:00', '10:00', '14:00', '15:00'] },
               { day: 'Martes', slots: ['09:00', '10:00', '14:00', '15:00'] },
@@ -88,12 +96,13 @@ const ProfessionalProfile = () => {
     );
   }
 
+  const isValidImage = isValidImageUrl(professional.image);
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
 
       <div className="container mx-auto px-4 py-8">
-        {/* Back Button */}
         <Button
           variant="ghost"
           className="mb-6"
@@ -104,25 +113,31 @@ const ProfessionalProfile = () => {
         </Button>
 
         <div className="grid lg:grid-cols-3 gap-8">
-          {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Header Card */}
             <Card>
               <CardContent className="pt-6">
                 <div className="flex flex-col md:flex-row gap-6">
-                  <img
-                    src={professional.image}
-                    alt={professional.name}
-                    className="w-full md:w-48 h-48 object-cover rounded-lg"
-                  />
-                  
+                  {isValidImage ? (
+                    <img
+                      src={professional.image}
+                      alt={professional.name}
+                      className="w-full md:w-48 h-48 object-cover rounded-lg"
+                    />
+                  ) : (
+                    <div className={`w-full md:w-48 h-48 rounded-lg flex items-center justify-center ${getAvatarColor(professional.name)}`}>
+                      <span className="text-5xl font-bold text-white">
+                        {getInitials(professional.name)}
+                      </span>
+                    </div>
+                  )}
+
                   <div className="flex-1 space-y-4">
                     <div>
                       <h1 className="text-3xl font-bold mb-2">{professional.name}</h1>
                       <p className="text-xl text-primary font-medium mb-3">
                         {professional.profession}
                       </p>
-                      
+
                       <div className="flex flex-wrap gap-4 text-sm">
                         <div className="flex items-center gap-1">
                           <Star className="w-4 h-4 fill-accent text-accent" />
@@ -131,12 +146,12 @@ const ProfessionalProfile = () => {
                             ({professional.reviewCount} reseñas)
                           </span>
                         </div>
-                        
+
                         <div className="flex items-center gap-1 text-muted-foreground">
                           <MapPin className="w-4 h-4" />
                           {professional.location}
                         </div>
-                        
+
                         <div className="flex items-center gap-1 text-muted-foreground">
                           <Briefcase className="w-4 h-4" />
                           {professional.experience}
@@ -156,7 +171,6 @@ const ProfessionalProfile = () => {
               </CardContent>
             </Card>
 
-            {/* About */}
             <Card>
               <CardHeader>
                 <CardTitle>Sobre Mí</CardTitle>
@@ -168,7 +182,6 @@ const ProfessionalProfile = () => {
               </CardContent>
             </Card>
 
-            {/* Services */}
             <Card>
               <CardHeader>
                 <CardTitle>Servicios que Ofrezco</CardTitle>
@@ -188,7 +201,6 @@ const ProfessionalProfile = () => {
               </CardContent>
             </Card>
 
-            {/* Reviews */}
             <Card>
               <CardHeader>
                 <CardTitle>Reseñas de Clientes</CardTitle>
@@ -214,25 +226,22 @@ const ProfessionalProfile = () => {
             </Card>
           </div>
 
-          {/* Sidebar - Booking */}
           <div className="lg:col-span-1">
             <Card className="sticky top-24">
               <CardHeader>
                 <CardTitle>Reservar Hora</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Price */}
                 <div className="p-4 bg-primary/5 rounded-lg">
                   <div className="flex items-baseline gap-2">
                     <DollarSign className="w-5 h-5 text-primary" />
                     <span className="text-3xl font-bold text-primary">
                       ${professional.pricePerHour.toLocaleString('es-CL')}
                     </span>
-                    <span className="text-muted-foreground">/ hora</span>
+                    <span className="text-muted-foreground">/ consulta</span>
                   </div>
                 </div>
 
-                {/* Availability Preview */}
                 <div>
                   <h4 className="font-semibold mb-3 flex items-center gap-2">
                     <Calendar className="w-4 h-4" />

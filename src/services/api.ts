@@ -226,6 +226,14 @@ export const authService = {
     telefono?: string;
     foto_url?: string;
     userType: string;
+    id_profesion?: string;
+    id_rubro?: string;
+    descripcion?: string;
+    experiencia?: string;
+    pais?: string;
+    ciudad?: string;
+    servicios?: string;
+    precioHora?: number;
   }) =>
     apiClient.put(`/usuario/${userId}/complete-onboarding`, data),
 };

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Navbar } from "@/components/Navbar";
 import { ProfessionalCard } from "@/components/ProfessionalCard";
 import { HeroBanner } from "@/components/professionals/HeroBanner";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { profesionalService, rubroService } from "@/services/api";
 import { Loader2, Users, SearchX } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 
 interface Rubro {
   id_rubro: string;
@@ -17,6 +18,7 @@ interface Rubro {
 
 const Professionals = () => {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("rating");
@@ -24,6 +26,67 @@ const Professionals = () => {
   const [loading, setLoading] = useState(true);
   const [professionals, setProfessionals] = useState<any[]>([]);
   const [rubros, setRubros] = useState<Rubro[]>([]);
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  // Función para hacer scroll a los resultados
+  const scrollToResults = () => {
+    setTimeout(() => {
+      resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  };
+
+  // Mapeo de profesiones a rubros para sincronización
+  const professionToRubroMap: Record<string, string> = {
+    'Psicólogo': 'Salud',
+    'Dentista': 'Salud',
+    'Masajista': 'Salud',
+    'Abogado': 'Legal',
+    'Programador': 'Tecnología',
+    'Diseñador': 'Tecnología',
+    'Electricista': 'Construcción',
+    'Plomero': 'Construcción',
+    'Carpintero': 'Construcción',
+    'Pintor': 'Construcción',
+    'Arquitecto': 'Construcción',
+    'Chef': 'Gastronomía',
+    'Fotógrafo': 'Arte',
+    'Profesor': 'Educación',
+    'Mecánico': 'Automotriz',
+    'Jardinero': 'Servicios',
+  };
+
+  // Handler para búsqueda con scroll y sincronización de rubro
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+
+    // Si el valor coincide con una profesión conocida, seleccionar el rubro correspondiente
+    const matchedRubro = professionToRubroMap[value];
+    if (matchedRubro) {
+      setSelectedCategory(matchedRubro);
+    }
+
+    if (value) {
+      scrollToResults();
+    }
+  };
+
+  // Handler para cambio de categoría con scroll y limpiar búsqueda
+  const handleCategoryChange = (value: string) => {
+    setSelectedCategory(value);
+    // Limpiar búsqueda de texto cuando se selecciona un rubro específico
+    if (value !== "all") {
+      setSearchTerm("");
+      scrollToResults();
+    }
+  };
+
+  // Generar rating y reviews variados para demo
+  const getRandomRating = (seed: string): { rating: number; reviews: number } => {
+    const hash = seed.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const rating = 4.0 + (hash % 10) / 10; // Entre 4.0 y 4.9
+    const reviews = 5 + (hash % 95); // Entre 5 y 99
+    return { rating: Math.round(rating * 10) / 10, reviews };
+  };
 
   // Cargar profesionales y rubros desde el backend
   useEffect(() => {
@@ -33,36 +96,53 @@ const Professionals = () => {
 
         // Cargar rubros y profesionales en paralelo
         const [rubrosData, professionalsData]: [any, any] = await Promise.all([
-          rubroService.list(),
+          rubroService.list().catch(() => []),
           profesionalService.list(),
         ]);
-
-        // Procesar rubros
-        if (rubrosData && rubrosData.length > 0) {
-          setRubros(rubrosData);
-          console.log(`Cargados ${rubrosData.length} rubros desde la BD`);
-        }
 
         if (!professionalsData || professionalsData.length === 0) {
           console.log('No hay profesionales en la BD');
           setProfessionals([]);
+          setRubros([]);
         } else {
-          // Crear mapa de rubros para lookup rápido
-          const rubrosMap = new Map(rubrosData?.map((r: Rubro) => [r.id_rubro, r.nombre]) || []);
+          // Extraer rubros únicos de los profesionales si no hay rubros en la BD
+          const uniqueRubros = new Map<string, string>();
+          professionalsData.forEach((prof: any) => {
+            if (prof.id_rubro && !uniqueRubros.has(prof.id_rubro)) {
+              uniqueRubros.set(prof.id_rubro, prof.id_rubro);
+            }
+          });
+
+          // Si hay rubros del backend, usarlos; si no, usar los extraídos
+          if (rubrosData && rubrosData.length > 0) {
+            setRubros(rubrosData);
+          } else {
+            // Crear rubros desde los profesionales
+            const extractedRubros: Rubro[] = Array.from(uniqueRubros.keys()).map(rubro => ({
+              id_rubro: rubro,
+              nombre: rubro,
+            }));
+            setRubros(extractedRubros);
+            console.log(`Extraídos ${extractedRubros.length} rubros de los profesionales`);
+          }
 
           // El backend retorna los datos completos en un solo request
           const enrichedProfessionals = professionalsData.map((prof: any) => {
+            const { rating, reviews } = getRandomRating(prof.id_usuario_profesional);
+            const locationParts = [prof.ciudad, prof.pais].filter(Boolean);
+            const location = locationParts.length > 0 ? locationParts.join(', ') : 'Sin ubicación';
             return {
               id: prof.id_usuario_profesional,
+              userId: prof.id_usuario, // Para identificar si es el usuario actual
               name: `${prof.nombre} ${prof.apellido}`,
               profession: prof.id_profesion,
               image: prof.foto_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + prof.id_usuario,
-              rating: 5.0,
-              reviewCount: 0,
-              pricePerHour: 30000,
-              location: 'Santiago, Chile',
+              rating,
+              reviewCount: reviews,
+              pricePerHour: prof.precioHora || 0,
+              location,
               category: prof.id_rubro,
-              categoryName: rubrosMap.get(prof.id_rubro) || prof.id_rubro,
+              categoryName: prof.id_rubro,
             };
           });
 
@@ -90,11 +170,12 @@ const Professionals = () => {
 
     // Filter by search term
     if (searchTerm) {
+      const term = searchTerm.toLowerCase();
       filtered = filtered.filter(
         (prof) =>
-          prof.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          prof.profession.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          prof.location.toLowerCase().includes(searchTerm.toLowerCase())
+          (prof.name || '').toLowerCase().includes(term) ||
+          (prof.profession || '').toLowerCase().includes(term) ||
+          (prof.location || '').toLowerCase().includes(term)
       );
     }
 
@@ -145,7 +226,7 @@ const Professionals = () => {
 
         <HeroBanner
           searchTerm={searchTerm}
-          onSearchChange={setSearchTerm}
+          onSearchChange={handleSearchChange}
           resultsCount={filteredAndSortedProfessionals.length}
           loading={loading}
         />
@@ -153,12 +234,12 @@ const Professionals = () => {
         <HowItWorks />
       </div>
 
-      {/* Main Content */}
-      <div className="container mx-auto px-4 py-8">
+      {/* Main Content - Results Section */}
+      <div ref={resultsRef} className="container mx-auto px-4 py-8 scroll-mt-20">
         {/* Filters */}
         <SearchFilters
           selectedCategory={selectedCategory}
-          onCategoryChange={setSelectedCategory}
+          onCategoryChange={handleCategoryChange}
           sortBy={sortBy}
           onSortChange={setSortBy}
           onClearFilters={clearFilters}
@@ -195,6 +276,7 @@ const Professionals = () => {
                 pricePerHour={professional.pricePerHour}
                 location={professional.location}
                 variant={viewMode}
+                isCurrentUser={user && (user as any).id_usuario === professional.userId}
               />
             ))}
           </div>
