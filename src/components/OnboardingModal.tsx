@@ -41,6 +41,7 @@ export const OnboardingModal = () => {
           apellido: nameParts.slice(1).join(' ') || '',
           telefono: '',
           foto_url: '',
+          userType: 'cliente',
         });
       }
     } else {

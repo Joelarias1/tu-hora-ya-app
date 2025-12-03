@@ -13,11 +13,11 @@ const getApiBaseUrl = (): string => {
 
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     // Entorno local - Backend en Docker
-    return 'http://localhost:8000';
+    return 'http://3.211.67.67:8080';
   } else {
     // Producción - Cambiar por tu IP de EC2 o dominio
     // TODO: Reemplazar con tu IP de EC2 cuando despliegues
-    return 'http://TU_IP_EC2:8000';
+    return 'http://3.211.67.67:8080';
   }
 };
 
@@ -132,20 +132,13 @@ export const API_ENDPOINTS = {
 
 export const AZURE_AD_CONFIG = {
   CLIENT_ID: '591c4d94-6709-4fbc-96c6-d1118e76862b',
-  // Authority para Azure AD B2C/CIAM External ID
-  AUTHORITY: 'https://tuhoraya.ciamlogin.com/',
+  AUTHORITY: 'https://tuhoraya.ciamlogin.com/daef8e33-adbe-405e-8773-78df551d2b73/v2.0',
   REDIRECT_URI: window.location.origin,
   POST_LOGOUT_REDIRECT_URI: window.location.origin,
-
-  // Known authorities para CIAM (requerido para External ID)
   KNOWN_AUTHORITIES: ['tuhoraya.ciamlogin.com'],
+  SCOPES: ['openid', 'profile', 'email'], // opcional pero más explícito
+};
 
-  // Scopes para CIAM - MSAL añadirá automáticamente openid, profile, email
-  SCOPES: [],
-
-  // URL de tu API backend (opcional)
-  API_URI: API_CONFIG.BASE_URL,
-} as const;
 
 // ============================================
 // CONFIGURACIÓN DE LA APLICACIÓN

@@ -49,7 +49,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const initializeMsal = async () => {
       try {
-        // Verificar si hay sesión guardada en localStorage (login tradicional)
+        // 1) Revisar si hay sesión tradicional guardada
         const savedUser = localStorage.getItem('user');
         if (savedUser) {
           const userData = JSON.parse(savedUser);
@@ -59,33 +59,39 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           return;
         }
 
-        // Inicializar MSAL para Azure AD
+        // 2) Inicializar MSAL
         await msalInstance.initialize();
 
-        // Verificar si hay una cuenta activa de Azure AD
+        // 3) Ver si hay una cuenta de Azure activa
         const accounts = msalInstance.getAllAccounts();
         if (accounts.length > 0) {
-          // Obtener token de acceso de forma silenciosa
           try {
             const response = await msalInstance.acquireTokenSilent({
               ...loginRequest,
               account: accounts[0],
             });
 
-            // Establecer token en el estado y en el API client
-            setAccessToken(response.accessToken);
-            apiClient.setAuthToken(response.accessToken);
-
-            // Sincronizar con el backend para obtener datos completos del usuario
-            try {
-              const syncResponse: any = await authService.azureSync(
-                accounts[0].username,
-                accounts[0].name || '',
-                response.accessToken
+            if (!response.accessToken) {
+              console.warn(
+                '⚠️ acquireTokenSilent no devolvió accessToken en init'
               );
+              return;
+            }
+            console.log('🟣 acquireTokenSilent init:', {
+              idToken: response.idToken,
+              accessToken: response.accessToken,
+            });
+            const token = response.idToken;
+            // Guardar token y configurarlo en el API client
+           setAccessToken(token);
+            apiClient.setAuthToken(token);
+
+            // 4) Sincronizar con backend (azure-sync) usando SOLO el token
+            try {
+              const syncResponse: any = await authService.azureSync();
+              console.log('Respuesta de azure-sync (init):', syncResponse);
 
               if (syncResponse.success) {
-                // Usuario existe o fue creado
                 const userData: UserData = {
                   id_usuario: syncResponse.id_usuario,
                   nombre: syncResponse.nombre,
@@ -98,25 +104,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 setUser(userData);
                 setIsAuthenticated(true);
 
-                // Verificar si necesita onboarding basado en el campo onboarded
                 const needsOnboard = syncResponse.onboarded === false;
                 setNeedsOnboarding(needsOnboard);
               } else {
-                // Error en sincronización - necesita onboarding
+                // Si el backend no pudo sincronizar, dejamos la cuenta de Azure
                 setUser(accounts[0]);
                 setIsAuthenticated(true);
                 setNeedsOnboarding(true);
               }
             } catch (syncError) {
               console.error('❌ Error al sincronizar en init:', syncError);
-              // En caso de error, mantener sesión de Azure AD pero marcar que necesita onboarding
               setUser(accounts[0]);
               setIsAuthenticated(true);
               setNeedsOnboarding(true);
             }
           } catch (error) {
             console.error('⚠️ Error al obtener token silenciosamente:', error);
-            // Si falla la renovación silenciosa, limpiar la sesión
             setUser(null);
             setIsAuthenticated(false);
             setAccessToken(null);
@@ -172,50 +175,69 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const login = async () => {
     try {
       setLoading(true);
+
+      // 1) Login interactivo
       const loginResponse = await msalInstance.loginPopup(loginRequest);
+      const account =
+        loginResponse.account ?? msalInstance.getAllAccounts()[0];
 
-      if (loginResponse.account) {
-        setAccessToken(loginResponse.accessToken);
-        apiClient.setAuthToken(loginResponse.accessToken);
+      if (!account) {
+        throw new Error('No se encontró ninguna cuenta de Azure después del login');
+      }
 
-        // Sincronizar con el backend para obtener/crear el perfil del usuario
-        try {
-          const syncResponse: any = await authService.azureSync(
-            loginResponse.account.username,
-            loginResponse.account.name || '',
-            loginResponse.accessToken
-          );
+      // Opcional: marcar cuenta activa
+      msalInstance.setActiveAccount(account);
 
-          if (syncResponse.success) {
-            // Usuario existe o fue creado
-            const userData: UserData = {
-              id_usuario: syncResponse.id_usuario,
-              nombre: syncResponse.nombre,
-              apellido: syncResponse.apellido,
-              correo: syncResponse.correo,
-              foto_url: syncResponse.foto_url,
-              id_rol: syncResponse.id_rol,
-            };
+      // 2) Obtener access token de forma silenciosa después del login
+      const tokenResult = await msalInstance.acquireTokenSilent({
+        ...loginRequest,
+        account,
+      });
+      console.log('🟣 tokenResult (React):', tokenResult);
+      console.log('🟣 accessToken length:', tokenResult.accessToken?.length);
+      console.log('🟣 idToken length:', tokenResult.idToken?.length);
 
-            setUser(userData);
-            setIsAuthenticated(true);
+      const token = tokenResult.idToken; 
 
-            // Verificar si necesita onboarding basado en el campo onboarded
-            const needsOnboard = syncResponse.onboarded === false;
-            setNeedsOnboarding(needsOnboard);
-          } else {
-            // Error en sincronización - necesita onboarding
-            setUser(loginResponse.account);
-            setIsAuthenticated(true);
-            setNeedsOnboarding(true);
-          }
-        } catch (syncError) {
-          console.error('❌ Error al sincronizar con BD:', syncError);
-          // En caso de error, mantener sesión de Azure AD pero marcar que necesita onboarding
-          setUser(loginResponse.account);
+      if (!token) {
+        console.error('⚠️ MSAL no devolvió accessToken después del login');
+        throw new Error('No se pudo obtener el token de acceso de Azure AD');
+      }
+
+      setAccessToken(token);
+      apiClient.setAuthToken(token); // A partir de aquí TODAS las peticiones llevan Authorization: Bearer
+
+      // 3) Sincronizar con el backend (crear/obtener usuario interno)
+      try {
+        const syncResponse: any = await authService.azureSync();
+        console.log('Respuesta de azure-sync (login):', syncResponse);
+
+        if (syncResponse.success) {
+          const userData: UserData = {
+            id_usuario: syncResponse.id_usuario,
+            nombre: syncResponse.nombre,
+            apellido: syncResponse.apellido,
+            correo: syncResponse.correo,
+            foto_url: syncResponse.foto_url,
+            id_rol: syncResponse.id_rol,
+          };
+
+          setUser(userData);
+          setIsAuthenticated(true);
+
+          const needsOnboard = syncResponse.onboarded === false;
+          setNeedsOnboarding(needsOnboard);
+        } else {
+          // Backend no pudo sincronizar: usamos solo la cuenta de Azure
+          setUser(account);
           setIsAuthenticated(true);
           setNeedsOnboarding(true);
         }
+      } catch (syncError) {
+        console.error('❌ Error al sincronizar con BD:', syncError);
+        setUser(account);
+        setIsAuthenticated(true);
+        setNeedsOnboarding(true);
       }
     } catch (error) {
       console.error('❌ Error en login:', error);
@@ -235,7 +257,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       // Limpiar sesión de localStorage
       localStorage.removeItem('user');
 
-      // Intentar logout de Azure AD si existe sesión activa
+      // Logout de Azure AD si hay cuenta
       const accounts = msalInstance.getAllAccounts();
       if (accounts.length > 0) {
         await msalInstance.logoutPopup();

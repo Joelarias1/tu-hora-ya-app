@@ -11,7 +11,7 @@ export const msalConfig: Configuration = {
     redirectUri: AZURE_AD_CONFIG.REDIRECT_URI,
     postLogoutRedirectUri: AZURE_AD_CONFIG.POST_LOGOUT_REDIRECT_URI,
     // knownAuthorities es requerido para Azure AD B2C/CIAM External ID
-    knownAuthorities: AZURE_AD_CONFIG.KNOWN_AUTHORITIES,
+    knownAuthorities: [...AZURE_AD_CONFIG.KNOWN_AUTHORITIES],
   },
   cache: {
     cacheLocation: 'sessionStorage', // Usar sessionStorage para el token
@@ -47,14 +47,14 @@ export const msalConfig: Configuration = {
  * Para CIAM, MSAL añade automáticamente openid, profile, email
  */
 export const loginRequest: PopupRequest = {
-  scopes: AZURE_AD_CONFIG.SCOPES,
+  scopes: [...AZURE_AD_CONFIG.SCOPES],
 };
 
 /**
  * Scopes para obtener token de acceso
  */
 export const tokenRequest = {
-  scopes: AZURE_AD_CONFIG.SCOPES,
+  scopes: [...AZURE_AD_CONFIG.SCOPES],
 };
 
 /**

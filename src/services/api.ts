@@ -50,6 +50,7 @@ class ApiClient {
     };
 
     try {
+      console.log('➡️ FETCH', config.method ?? 'GET', url, 'headers:', config.headers);
       const response = await fetch(url, config);
 
       // Si no hay contenido (204 No Content)
@@ -218,8 +219,7 @@ export const rubroService = {
 export const authService = {
   login: (correo: string, clave: string) =>
     apiClient.post(`/usuario/login`, { correo, clave }),
-  azureSync: (correo: string, nombre: string, accessToken: string) =>
-    apiClient.post(`/usuario/azure-sync`, { correo, nombre, accessToken }),
+   azureSync: () => apiClient.post(`/usuario/azure-sync`, {}),
   completeOnboarding: (userId: string, data: {
     nombre: string;
     apellido: string;
