@@ -174,7 +174,7 @@ useEffect(() => {
   const login = async () => {
     try {
       setLoading(true);
-      await msalInstance.initialize();
+        await msalInstance.initialize();
       // 1) Login interactivo
       const loginResponse = await msalInstance.loginPopup(loginRequest);
       const account =

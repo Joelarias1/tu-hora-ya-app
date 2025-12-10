@@ -47,7 +47,12 @@ interface Rubro {
 }
 
 export default function Profile() {
- const { user, updateUserData, loading: authLoading } = useAuth();
+  const {
+    user,
+    updateUserData,
+    loading: authLoading,
+    isAuthenticated,
+  } = useAuth();
 
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -111,14 +116,14 @@ export default function Profile() {
           : [];
 
         setProfesionalData({
-          profesion: miPerfil.id_profesion || "",
-          rubro: miPerfil.id_rubro || "",
-          descripcion: miPerfil.descripcion || "",
-          experiencia: miPerfil.experiencia || "",
-          pais: miPerfil.pais || "Chile",
-          ciudad: miPerfil.ciudad || "",
-          servicios: serviciosList,
-          precioHora: miPerfil.precioHora || 0,
+       profesion: miPerfil.id_profesion ? String(miPerfil.id_profesion) : "",
+          rubro: miPerfil.id_rubro ? String(miPerfil.id_rubro) : "",
+          descripcion: userData.descripcion || "",
+          experiencia: userData.experiencia || "",
+          pais: userData.pais || "Chile",
+          ciudad: userData.ciudad || "",
+          servicios: userData.servicios || [],
+          precioHora: 0,
         });
 
         // Si encontramos datos profesionales, el usuario es profesional
@@ -128,14 +133,14 @@ export default function Profile() {
       } else {
         // Sin datos profesionales, usar datos del contexto/localStorage
         setProfesionalData({
-          profesion: miPerfil.id_profesion ? String(miPerfil.id_profesion) : "",
-          rubro: miPerfil.id_rubro ? String(miPerfil.id_rubro) : "",
-          descripcion: userData.descripcion || "",
-          experiencia: userData.experiencia || "",
-          pais: userData.pais || "Chile",
-          ciudad: userData.ciudad || "",
-          servicios: userData.servicios || [],
-          precioHora: 0,
+            profesion: userData.profesion || "",
+    rubro: userData.rubro || "",
+    descripcion: userData.descripcion || "",
+    experiencia: userData.experiencia || "",
+    pais: userData.pais || "Chile",
+    ciudad: userData.ciudad || "",
+    servicios: userData.servicios || [],
+    precioHora: 0,
         });
       }
     } catch (error) {
@@ -157,46 +162,46 @@ export default function Profile() {
   }, [user]);
 
 useEffect(() => {
-  if (!authLoading) {
-    loadUserData();
-  }
+  if (authLoading || !isAuthenticated) return;
+  loadUserData();
 }, [authLoading, loadUserData]);
 
   // Profile.tsx
 
-  useEffect(() => {
-     if (!authLoading) {
-    const loadOptions = async () => {
-      try {
-        const [profesionesData, rubrosData] = await Promise.all([
-          profesionService.list().catch(() => []),
-          rubroService.list().catch(() => []),
-        ]);
+ useEffect(() => {
+  if (authLoading || !isAuthenticated) return; // ⬅️ igual que arriba
 
-        const mappedProfesiones: Profesion[] = (profesionesData as any[]).map(
-          (p) => ({
-            id_profesion: String(p.id_profesion), // 'KINE'
-            nombre: p.descripcion ?? p.nombre ?? "", // 'Kinesilogo'
-          })
-        );
+  const loadOptions = async () => {
+    try {
+      const [profesionesData, rubrosData] = await Promise.all([
+        profesionService.list().catch(() => []),
+        rubroService.list().catch(() => []),
+      ]);
 
-        const mappedRubros: Rubro[] = (rubrosData as any[]).map((r) => ({
-          id_rubro: String(r.id_rubro), // 'SALUD'
-          nombre: r.descripcion ?? r.nombre ?? "", // 'Salud'
-        }));
+      const mappedProfesiones: Profesion[] = (profesionesData as any[]).map(
+        (p) => ({
+          id_profesion: String(p.id_profesion),      // 'KINE'
+          nombre: p.descripcion ?? p.nombre ?? "",   // 'Kinesilogo'
+        })
+      );
 
-        setProfesiones(mappedProfesiones);
-        setRubros(mappedRubros);
-      } catch (error) {
-        console.error("Error cargando opciones:", error);
-        setProfesiones([]);
-        setRubros([]);
-      }
-    };
+      const mappedRubros: Rubro[] = (rubrosData as any[]).map((r) => ({
+        id_rubro: String(r.id_rubro),                // 'SALUD'
+        nombre: r.descripcion ?? r.nombre ?? "",     // 'Salud'
+      }));
 
-    loadOptions();
-  }
-  }, []);
+      setProfesiones(mappedProfesiones);
+      setRubros(mappedRubros);
+    } catch (error) {
+      console.error("Error cargando opciones:", error);
+      setProfesiones([]);
+      setRubros([]);
+    }
+  };
+
+  loadOptions();
+}, [authLoading, isAuthenticated]);  // ⬅️ deps correctas
+
 
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
