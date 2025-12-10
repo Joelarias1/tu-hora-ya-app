@@ -71,19 +71,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               account: accounts[0],
             });
 
-            if (!response.accessToken) {
-              console.warn(
-                '⚠️ acquireTokenSilent no devolvió accessToken en init'
-              );
+            if (!response.idToken) {
+              console.warn('⚠️ acquireTokenSilent no devolvió idToken en init');
               return;
             }
+
             console.log('🟣 acquireTokenSilent init:', {
               idToken: response.idToken,
               accessToken: response.accessToken,
             });
+
             const token = response.idToken;
+
             // Guardar token y configurarlo en el API client
-           setAccessToken(token);
+            setAccessToken(token);
             apiClient.setAuthToken(token);
 
             // 4) Sincronizar con backend (azure-sync) usando SOLO el token
@@ -182,13 +183,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         loginResponse.account ?? msalInstance.getAllAccounts()[0];
 
       if (!account) {
-        throw new Error('No se encontró ninguna cuenta de Azure después del login');
+        throw new Error(
+          'No se encontró ninguna cuenta de Azure después del login'
+        );
       }
 
       // Opcional: marcar cuenta activa
       msalInstance.setActiveAccount(account);
 
-      // 2) Obtener access token de forma silenciosa después del login
+      // 2) Obtener token de forma silenciosa después del login
       const tokenResult = await msalInstance.acquireTokenSilent({
         ...loginRequest,
         account,
@@ -197,11 +200,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       console.log('🟣 accessToken length:', tokenResult.accessToken?.length);
       console.log('🟣 idToken length:', tokenResult.idToken?.length);
 
-      const token = tokenResult.idToken; 
+      const token = tokenResult.idToken;
 
       if (!token) {
-        console.error('⚠️ MSAL no devolvió accessToken después del login');
-        throw new Error('No se pudo obtener el token de acceso de Azure AD');
+        console.error('⚠️ MSAL no devolvió idToken después del login');
+        throw new Error('No se pudo obtener el token de Azure AD');
       }
 
       setAccessToken(token);
@@ -246,6 +249,50 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setLoading(false);
     }
   };
+
+  /**
+   * REFRESCO PERIÓDICO DEL TOKEN (solo para login Azure)
+   */
+  useEffect(() => {
+    // Si no hay token, no intentamos refrescar (login tradicional)
+    if (!isAuthenticated || !user || !accessToken) return;
+
+    const accounts = msalInstance.getAllAccounts();
+    const account = accounts[0];
+    if (!account) return;
+
+    let intervalId: number | undefined;
+
+    const refreshToken = async () => {
+      try {
+        const result = await msalInstance.acquireTokenSilent({
+          ...loginRequest,
+          account,
+        });
+
+        const newToken = result.idToken;
+        if (!newToken) return;
+
+        console.log('🔄 Token refrescado, idToken length:', newToken.length);
+        setAccessToken(newToken);
+        apiClient.setAuthToken(newToken);
+      } catch (err) {
+        console.error('❌ Error refrescando token:', err);
+        // aquí podrías, si quieres, hacer logout automático o marcar que se requiere relogin
+      }
+    };
+
+    // refresco inicial
+    refreshToken();
+    // luego cada 10 minutos (ajusta según la vida de tu token)
+    intervalId = window.setInterval(refreshToken, 10 * 60 * 1000);
+
+    return () => {
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, [isAuthenticated, user, accessToken]);
 
   /**
    * Logout

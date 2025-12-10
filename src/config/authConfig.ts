@@ -14,7 +14,7 @@ export const msalConfig: Configuration = {
     knownAuthorities: [...AZURE_AD_CONFIG.KNOWN_AUTHORITIES],
   },
   cache: {
-    cacheLocation: 'sessionStorage', // Usar sessionStorage para el token
+    cacheLocation: 'localStorage', // Usar localStorage para el token
     storeAuthStateInCookie: false, // Set to true para IE11 o Edge
   },
   system: {

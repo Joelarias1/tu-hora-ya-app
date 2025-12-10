@@ -1,13 +1,22 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/context/AuthContext';
-import { authService, profesionService, rubroService, profesionalService } from '@/services/api';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
-import { toast } from 'sonner';
-import { Save, X, Loader2 } from 'lucide-react';
-import Navbar from '@/components/Navbar';
-import { ProfileHeader, PersonalInfoForm, ProfessionalInfoForm } from '@/components/profile';
+import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/context/AuthContext";
+import {
+  authService,
+  profesionService,
+  rubroService,
+  profesionalService,
+} from "@/services/api";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { toast } from "sonner";
+import { Save, X, Loader2 } from "lucide-react";
+import Navbar from "@/components/Navbar";
+import {
+  ProfileHeader,
+  PersonalInfoForm,
+  ProfessionalInfoForm,
+} from "@/components/profile";
 
 interface UserData {
   id_usuario: string;
@@ -17,7 +26,7 @@ interface UserData {
   foto_url: string | null;
   id_rol?: string | null;
   telefono?: string | null;
-  userType?: 'cliente' | 'profesional' | null;
+  userType?: "cliente" | "profesional" | null;
   profesion?: string;
   rubro?: string;
   descripcion?: string;
@@ -38,29 +47,30 @@ interface Rubro {
 }
 
 export default function Profile() {
-  const { user, updateUserData } = useAuth();
+ const { user, updateUserData, loading: authLoading } = useAuth();
+
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [profesiones, setProfesiones] = useState<Profesion[]>([]);
   const [rubros, setRubros] = useState<Rubro[]>([]);
-  const [newService, setNewService] = useState('');
+  const [newService, setNewService] = useState("");
 
   const [formData, setFormData] = useState({
-    nombre: '',
-    apellido: '',
-    telefono: '',
-    foto_url: '',
-    userType: 'cliente' as 'cliente' | 'profesional',
+    nombre: "",
+    apellido: "",
+    telefono: "",
+    foto_url: "",
+    userType: "cliente" as "cliente" | "profesional",
   });
 
   const [profesionalData, setProfesionalData] = useState({
-    profesion: '',
-    rubro: '',
-    descripcion: '',
-    experiencia: '',
-    pais: 'Chile',
-    ciudad: '',
+    profesion: "",
+    rubro: "",
+    descripcion: "",
+    experiencia: "",
+    pais: "Chile",
+    ciudad: "",
     servicios: [] as string[],
     precioHora: 0,
   });
@@ -76,63 +86,68 @@ export default function Profile() {
 
     // Establecer datos básicos del usuario desde el contexto
     setFormData({
-      nombre: userData.nombre || '',
-      apellido: userData.apellido || '',
-      telefono: userData.telefono || '',
-      foto_url: userData.foto_url || '',
-      userType: userData.userType || 'cliente',
+      nombre: userData.nombre || "",
+      apellido: userData.apellido || "",
+      telefono: userData.telefono || "",
+      foto_url: userData.foto_url || "",
+      userType: userData.userType || "cliente",
     });
 
     // Cargar datos profesionales desde el backend
     try {
       // Obtener lista de profesionales y buscar el que corresponde a este usuario
-      const profesionales = await profesionalService.list() as any[];
-      const miPerfil = profesionales.find((p: any) => p.id_usuario === userData.id_usuario);
+      const profesionales = (await profesionalService.list()) as any[];
+      const miPerfil = profesionales.find(
+        (p: any) => p.id_usuario === userData.id_usuario
+      );
 
       if (miPerfil) {
         // Parsear servicios (vienen como string separado por comas)
         const serviciosList = miPerfil.servicios
-          ? miPerfil.servicios.split(',').map((s: string) => s.trim()).filter(Boolean)
+          ? miPerfil.servicios
+              .split(",")
+              .map((s: string) => s.trim())
+              .filter(Boolean)
           : [];
 
         setProfesionalData({
-          profesion: miPerfil.id_profesion || '',
-          rubro: miPerfil.id_rubro || '',
-          descripcion: miPerfil.descripcion || '',
-          experiencia: miPerfil.experiencia || '',
-          pais: miPerfil.pais || 'Chile',
-          ciudad: miPerfil.ciudad || '',
+          profesion: miPerfil.id_profesion || "",
+          rubro: miPerfil.id_rubro || "",
+          descripcion: miPerfil.descripcion || "",
+          experiencia: miPerfil.experiencia || "",
+          pais: miPerfil.pais || "Chile",
+          ciudad: miPerfil.ciudad || "",
           servicios: serviciosList,
           precioHora: miPerfil.precioHora || 0,
         });
 
         // Si encontramos datos profesionales, el usuario es profesional
-        if (!userData.userType || userData.userType !== 'profesional') {
-          setFormData(prev => ({ ...prev, userType: 'profesional' }));
+        if (!userData.userType || userData.userType !== "profesional") {
+          setFormData((prev) => ({ ...prev, userType: "profesional" }));
         }
       } else {
         // Sin datos profesionales, usar datos del contexto/localStorage
         setProfesionalData({
-          profesion: userData.profesion || '',
-          rubro: userData.rubro || '',
-          descripcion: userData.descripcion || '',
-          experiencia: userData.experiencia || '',
-          pais: userData.pais || 'Chile',
-          ciudad: userData.ciudad || '',
+          profesion: miPerfil.id_profesion ? String(miPerfil.id_profesion) : "",
+          rubro: miPerfil.id_rubro ? String(miPerfil.id_rubro) : "",
+          descripcion: userData.descripcion || "",
+          experiencia: userData.experiencia || "",
+          pais: userData.pais || "Chile",
+          ciudad: userData.ciudad || "",
           servicios: userData.servicios || [],
           precioHora: 0,
         });
       }
     } catch (error) {
-      console.error('Error cargando datos profesionales:', error);
+      console.error("Error cargando datos profesionales:", error);
       // En caso de error, usar datos del contexto/localStorage
       setProfesionalData({
-        profesion: userData.profesion || '',
-        rubro: userData.rubro || '',
-        descripcion: userData.descripcion || '',
-        experiencia: userData.experiencia || '',
-        pais: userData.pais || 'Chile',
-        ciudad: userData.ciudad || '',
+        profesion: userData.profesion || "",
+        rubro: userData.rubro || "",
+        descripcion: userData.descripcion || "",
+        experiencia: userData.experiencia || "",
+        pais: userData.pais || "Chile",
+        ciudad: userData.ciudad || "",
         servicios: userData.servicios || [],
         precioHora: 0,
       });
@@ -141,51 +156,86 @@ export default function Profile() {
     }
   }, [user]);
 
-  useEffect(() => {
+useEffect(() => {
+  if (!authLoading) {
     loadUserData();
-  }, [loadUserData]);
+  }
+}, [authLoading, loadUserData]);
+
+  // Profile.tsx
 
   useEffect(() => {
+     if (!authLoading) {
     const loadOptions = async () => {
       try {
         const [profesionesData, rubrosData] = await Promise.all([
           profesionService.list().catch(() => []),
           rubroService.list().catch(() => []),
         ]);
-        setProfesiones(profesionesData as Profesion[]);
-        setRubros(rubrosData as Rubro[]);
+
+        const mappedProfesiones: Profesion[] = (profesionesData as any[]).map(
+          (p) => ({
+            id_profesion: String(p.id_profesion), // 'KINE'
+            nombre: p.descripcion ?? p.nombre ?? "", // 'Kinesilogo'
+          })
+        );
+
+        const mappedRubros: Rubro[] = (rubrosData as any[]).map((r) => ({
+          id_rubro: String(r.id_rubro), // 'SALUD'
+          nombre: r.descripcion ?? r.nombre ?? "", // 'Salud'
+        }));
+
+        setProfesiones(mappedProfesiones);
+        setRubros(mappedRubros);
       } catch (error) {
-        console.error('Error cargando opciones:', error);
+        console.error("Error cargando opciones:", error);
+        setProfesiones([]);
+        setRubros([]);
       }
     };
+
     loadOptions();
+  }
   }, []);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleProfesionalInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleProfesionalInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target;
     setProfesionalData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleProfesionalDataChange = (field: keyof typeof profesionalData, value: string) => {
-    if (field === 'precioHora') {
-      setProfesionalData((prev) => ({ ...prev, [field]: parseInt(value) || 0 }));
+  const handleProfesionalDataChange = (
+    field: keyof typeof profesionalData,
+    value: string
+  ) => {
+    if (field === "precioHora") {
+      setProfesionalData((prev) => ({
+        ...prev,
+        [field]: parseInt(value) || 0,
+      }));
     } else {
       setProfesionalData((prev) => ({ ...prev, [field]: value }));
     }
   };
 
   const addService = () => {
-    if (newService.trim() && !profesionalData.servicios.includes(newService.trim())) {
+    if (
+      newService.trim() &&
+      !profesionalData.servicios.includes(newService.trim())
+    ) {
       setProfesionalData((prev) => ({
         ...prev,
         servicios: [...prev.servicios, newService.trim()],
       }));
-      setNewService('');
+      setNewService("");
     }
   };
 
@@ -200,7 +250,7 @@ export default function Profile() {
     if (!user) return;
 
     if (!formData.nombre.trim() || !formData.apellido.trim()) {
-      toast.error('Nombre y apellido son obligatorios');
+      toast.error("Nombre y apellido son obligatorios");
       return;
     }
 
@@ -214,24 +264,27 @@ export default function Profile() {
         telefono: formData.telefono || undefined,
         foto_url: formData.foto_url,
         userType: formData.userType,
-        ...(formData.userType === 'profesional' && {
+        ...(formData.userType === "profesional" && {
           id_profesion: profesionalData.profesion,
           id_rubro: profesionalData.rubro,
           descripcion: profesionalData.descripcion,
           experiencia: profesionalData.experiencia,
           pais: profesionalData.pais,
           ciudad: profesionalData.ciudad,
-          servicios: profesionalData.servicios.join(', '),
+          servicios: profesionalData.servicios.join(", "),
           precioHora: profesionalData.precioHora,
         }),
       };
 
-      console.log('=== ENVIANDO REQUEST ===');
-      console.log('profesionalData.precioHora:', profesionalData.precioHora);
-      console.log('requestData:', JSON.stringify(requestData, null, 2));
-      console.log('========================');
+      console.log("=== ENVIANDO REQUEST ===");
+      console.log("profesionalData.precioHora:", profesionalData.precioHora);
+      console.log("requestData:", JSON.stringify(requestData, null, 2));
+      console.log("========================");
 
-      const response: any = await authService.completeOnboarding(userData.id_usuario, requestData);
+      const response: any = await authService.completeOnboarding(
+        userData.id_usuario,
+        requestData
+      );
 
       if (response.success) {
         // Actualizar con datos de la respuesta del servidor
@@ -250,16 +303,16 @@ export default function Profile() {
         updateUserData(serverUpdatedUser);
 
         // Guardar solo datos básicos en localStorage (sin datos profesionales)
-        localStorage.setItem('user', JSON.stringify(serverUpdatedUser));
+        localStorage.setItem("user", JSON.stringify(serverUpdatedUser));
 
-        toast.success('Perfil actualizado exitosamente');
+        toast.success("Perfil actualizado exitosamente");
         setIsEditing(false);
       } else {
-        toast.error('No se pudo actualizar el perfil en el servidor');
+        toast.error("No se pudo actualizar el perfil en el servidor");
       }
     } catch (error) {
-      console.error('Error al actualizar perfil en servidor:', error);
-      toast.error('Error de conexión con el servidor');
+      console.error("Error al actualizar perfil en servidor:", error);
+      toast.error("Error de conexión con el servidor");
     } finally {
       setLoading(false);
     }
@@ -322,7 +375,7 @@ export default function Profile() {
               correo={userData.correo}
               fotoUrl={formData.foto_url}
               profesion={profesionalData.profesion}
-              isProfesional={formData.userType === 'profesional'}
+              isProfesional={formData.userType === "profesional"}
               isEditing={isEditing}
               onEdit={() => setIsEditing(true)}
             />
@@ -333,12 +386,14 @@ export default function Profile() {
                 correo={userData.correo}
                 isEditing={isEditing}
                 onChange={handleInputChange}
-                onUserTypeChange={(value) => setFormData((prev) => ({ ...prev, userType: value }))}
+                onUserTypeChange={(value) =>
+                  setFormData((prev) => ({ ...prev, userType: value }))
+                }
               />
             </CardContent>
           </Card>
 
-          {formData.userType === 'profesional' && (
+          {formData.userType === "profesional" && (
             <ProfessionalInfoForm
               data={profesionalData}
               profesiones={profesiones}
@@ -355,13 +410,22 @@ export default function Profile() {
 
           {isEditing && (
             <div className="flex flex-col-reverse sm:flex-row gap-3">
-              <Button onClick={handleCancel} disabled={loading} variant="outline" className="flex-1">
+              <Button
+                onClick={handleCancel}
+                disabled={loading}
+                variant="outline"
+                className="flex-1"
+              >
                 <X className="h-4 w-4 mr-2" />
                 Cancelar
               </Button>
-              <Button onClick={handleSave} disabled={loading} className="flex-1">
+              <Button
+                onClick={handleSave}
+                disabled={loading}
+                className="flex-1"
+              >
                 <Save className="h-4 w-4 mr-2" />
-                {loading ? 'Guardando...' : 'Guardar Cambios'}
+                {loading ? "Guardando..." : "Guardar Cambios"}
               </Button>
             </div>
           )}

@@ -1,18 +1,32 @@
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { Briefcase, MapPin, Clock, FileText, Plus, X, DollarSign } from 'lucide-react';
+} from "@/components/ui/select";
+import {
+  Briefcase,
+  MapPin,
+  Clock,
+  FileText,
+  Plus,
+  X,
+  DollarSign,
+} from "lucide-react";
 
 interface Profesion {
   id_profesion: string;
@@ -42,26 +56,46 @@ interface ProfessionalInfoFormProps {
   isEditing: boolean;
   newService: string;
   onDataChange: (field: keyof ProfesionalData, value: string) => void;
-  onInputChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+  onInputChange: (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => void;
   onNewServiceChange: (value: string) => void;
   onAddService: () => void;
   onRemoveService: (service: string) => void;
 }
 
 const DEFAULT_PROFESIONES = [
-  'Psicólogo', 'Dentista', 'Abogado', 'Programador', 'Diseñador',
-  'Electricista', 'Plomero', 'Chef', 'Profesor', 'Mecánico'
+  "Psicólogo",
+  "Dentista",
+  "Abogado",
+  "Programador",
+  "Diseñador",
+  "Electricista",
+  "Plomero",
+  "Chef",
+  "Profesor",
+  "Mecánico",
 ];
 
 const DEFAULT_RUBROS = [
-  'Salud', 'Legal', 'Tecnología', 'Construcción',
-  'Gastronomía', 'Educación', 'Arte', 'Automotriz'
+  "Salud",
+  "Legal",
+  "Tecnología",
+  "Construcción",
+  "Gastronomía",
+  "Educación",
+  "Arte",
+  "Automotriz",
 ];
 
-const PAISES = ['Chile', 'Argentina', 'Perú', 'Colombia', 'México', 'España'];
+const PAISES = ["Chile", "Argentina", "Perú", "Colombia", "México", "España"];
 
 const EXPERIENCIA_OPTIONS = [
-  'Menos de 1 año', '1-2 años', '3-5 años', '5-10 años', 'Más de 10 años'
+  "Menos de 1 año",
+  "1-2 años",
+  "3-5 años",
+  "5-10 años",
+  "Más de 10 años",
 ];
 
 export const ProfessionalInfoForm = ({
@@ -76,14 +110,8 @@ export const ProfessionalInfoForm = ({
   onAddService,
   onRemoveService,
 }: ProfessionalInfoFormProps) => {
-  const profesionOptions = profesiones.length > 0
-    ? profesiones.map(p => p.nombre)
-    : DEFAULT_PROFESIONES;
-
-  const rubroOptions = rubros.length > 0
-    ? rubros.map(r => r.nombre)
-    : DEFAULT_RUBROS;
-
+  const profesionOptions = profesiones;
+  const rubroOptions = rubros;
   return (
     <Card>
       <CardHeader>
@@ -109,15 +137,17 @@ export const ProfessionalInfoForm = ({
             </Label>
             <Select
               value={data.profesion}
-              onValueChange={(value) => onDataChange('profesion', value)}
+              onValueChange={(value) => onDataChange("profesion", value)}
               disabled={!isEditing}
             >
-              <SelectTrigger className={!isEditing ? 'bg-muted' : ''}>
+              <SelectTrigger className={!isEditing ? "bg-muted" : ""}>
                 <SelectValue placeholder="Selecciona tu profesión" />
               </SelectTrigger>
               <SelectContent>
                 {profesionOptions.map((p) => (
-                  <SelectItem key={p} value={p}>{p}</SelectItem>
+                  <SelectItem key={p.id_profesion} value={p.id_profesion}>
+                    {p.nombre}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -131,15 +161,17 @@ export const ProfessionalInfoForm = ({
             </Label>
             <Select
               value={data.rubro}
-              onValueChange={(value) => onDataChange('rubro', value)}
+              onValueChange={(value) => onDataChange("rubro", value)}
               disabled={!isEditing}
             >
-              <SelectTrigger className={!isEditing ? 'bg-muted' : ''}>
+              <SelectTrigger className={!isEditing ? "bg-muted" : ""}>
                 <SelectValue placeholder="Selecciona tu rubro" />
               </SelectTrigger>
               <SelectContent>
                 {rubroOptions.map((r) => (
-                  <SelectItem key={r} value={r}>{r}</SelectItem>
+                  <SelectItem key={r.id_rubro} value={r.id_rubro}>
+                    {r.nombre}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -152,15 +184,17 @@ export const ProfessionalInfoForm = ({
             </Label>
             <Select
               value={data.pais}
-              onValueChange={(value) => onDataChange('pais', value)}
+              onValueChange={(value) => onDataChange("pais", value)}
               disabled={!isEditing}
             >
-              <SelectTrigger className={!isEditing ? 'bg-muted' : ''}>
+              <SelectTrigger className={!isEditing ? "bg-muted" : ""}>
                 <SelectValue placeholder="Selecciona tu país" />
               </SelectTrigger>
               <SelectContent>
                 {PAISES.map((p) => (
-                  <SelectItem key={p} value={p}>{p}</SelectItem>
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -178,7 +212,7 @@ export const ProfessionalInfoForm = ({
               onChange={onInputChange}
               disabled={!isEditing}
               placeholder="Ej: Santiago"
-              className={!isEditing ? 'bg-muted' : ''}
+              className={!isEditing ? "bg-muted" : ""}
             />
           </div>
 
@@ -189,15 +223,17 @@ export const ProfessionalInfoForm = ({
             </Label>
             <Select
               value={data.experiencia}
-              onValueChange={(value) => onDataChange('experiencia', value)}
+              onValueChange={(value) => onDataChange("experiencia", value)}
               disabled={!isEditing}
             >
-              <SelectTrigger className={!isEditing ? 'bg-muted' : ''}>
+              <SelectTrigger className={!isEditing ? "bg-muted" : ""}>
                 <SelectValue placeholder="Años de experiencia" />
               </SelectTrigger>
               <SelectContent>
                 {EXPERIENCIA_OPTIONS.map((e) => (
-                  <SelectItem key={e} value={e}>{e}</SelectItem>
+                  <SelectItem key={e} value={e}>
+                    {e}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -217,12 +253,12 @@ export const ProfessionalInfoForm = ({
                 min="0"
                 step="1000"
                 value={data.precioHora || 0}
-                onChange={(e) => onDataChange('precioHora', e.target.value)}
+                onChange={(e) => onDataChange("precioHora", e.target.value)}
                 placeholder="Ej: 25000"
               />
             ) : (
               <div className="flex h-10 w-full rounded-md border border-input bg-muted px-3 py-2 text-sm">
-                ${(data.precioHora || 0).toLocaleString('es-CL')}
+                ${(data.precioHora || 0).toLocaleString("es-CL")}
               </div>
             )}
             <p className="text-xs text-muted-foreground">
@@ -242,7 +278,7 @@ export const ProfessionalInfoForm = ({
               onChange={onInputChange}
               disabled={!isEditing}
               placeholder="Cuéntanos sobre ti, tu experiencia y lo que te hace único..."
-              className={`min-h-[120px] ${!isEditing ? 'bg-muted' : ''}`}
+              className={`min-h-[120px] ${!isEditing ? "bg-muted" : ""}`}
             />
           </div>
 
@@ -278,7 +314,9 @@ export const ProfessionalInfoForm = ({
                   value={newService}
                   onChange={(e) => onNewServiceChange(e.target.value)}
                   placeholder="Ej: Consulta inicial, Asesoría legal..."
-                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), onAddService())}
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && (e.preventDefault(), onAddService())
+                  }
                 />
                 <Button type="button" variant="outline" onClick={onAddService}>
                   <Plus className="h-4 w-4" />
