@@ -46,95 +46,93 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
   // Inicializar MSAL al montar el componente
-  useEffect(() => {
-    const initializeMsal = async () => {
-      try {
-        // 1) Revisar si hay sesión tradicional guardada
-        const savedUser = localStorage.getItem('user');
-        if (savedUser) {
-          const userData = JSON.parse(savedUser);
-          setUser(userData);
-          setIsAuthenticated(true);
-          setLoading(false);
-          return;
-        }
+useEffect(() => {
+  const initializeMsal = async () => {
+    try {
+      // 1) Inicializar MSAL SIEMPRE
+      await msalInstance.initialize();
 
-        // 2) Inicializar MSAL
-        await msalInstance.initialize();
+      // 2) Revisar si hay sesión tradicional guardada
+      const savedUser = localStorage.getItem('user');
+      if (savedUser) {
+        const userData = JSON.parse(savedUser);
+        setUser(userData);
+        setIsAuthenticated(true);
+        setLoading(false);
+        return;
+      }
 
-        // 3) Ver si hay una cuenta de Azure activa
-        const accounts = msalInstance.getAllAccounts();
-        if (accounts.length > 0) {
+      // 3) Ver si hay una cuenta de Azure activa
+      const accounts = msalInstance.getAllAccounts();
+      if (accounts.length > 0) {
+        try {
+          const response = await msalInstance.acquireTokenSilent({
+            ...loginRequest,
+            account: accounts[0],
+          });
+
+          if (!response.idToken) {
+            console.warn('⚠️ acquireTokenSilent no devolvió idToken en init');
+            return;
+          }
+
+          console.log('🟣 acquireTokenSilent init:', {
+            idToken: response.idToken,
+            accessToken: response.accessToken,
+          });
+
+          const token = response.idToken;
+
+          setAccessToken(token);
+          apiClient.setAuthToken(token);
+
+          // 4) azure-sync
           try {
-            const response = await msalInstance.acquireTokenSilent({
-              ...loginRequest,
-              account: accounts[0],
-            });
+            const syncResponse: any = await authService.azureSync();
+            console.log('Respuesta de azure-sync (init):', syncResponse);
 
-            if (!response.idToken) {
-              console.warn('⚠️ acquireTokenSilent no devolvió idToken en init');
-              return;
-            }
+            if (syncResponse.success) {
+              const userData: UserData = {
+                id_usuario: syncResponse.id_usuario,
+                nombre: syncResponse.nombre,
+                apellido: syncResponse.apellido,
+                correo: syncResponse.correo,
+                foto_url: syncResponse.foto_url,
+                id_rol: syncResponse.id_rol,
+              };
 
-            console.log('🟣 acquireTokenSilent init:', {
-              idToken: response.idToken,
-              accessToken: response.accessToken,
-            });
+              setUser(userData);
+              setIsAuthenticated(true);
 
-            const token = response.idToken;
-
-            // Guardar token y configurarlo en el API client
-            setAccessToken(token);
-            apiClient.setAuthToken(token);
-
-            // 4) Sincronizar con backend (azure-sync) usando SOLO el token
-            try {
-              const syncResponse: any = await authService.azureSync();
-              console.log('Respuesta de azure-sync (init):', syncResponse);
-
-              if (syncResponse.success) {
-                const userData: UserData = {
-                  id_usuario: syncResponse.id_usuario,
-                  nombre: syncResponse.nombre,
-                  apellido: syncResponse.apellido,
-                  correo: syncResponse.correo,
-                  foto_url: syncResponse.foto_url,
-                  id_rol: syncResponse.id_rol,
-                };
-
-                setUser(userData);
-                setIsAuthenticated(true);
-
-                const needsOnboard = syncResponse.onboarded === false;
-                setNeedsOnboarding(needsOnboard);
-              } else {
-                // Si el backend no pudo sincronizar, dejamos la cuenta de Azure
-                setUser(accounts[0]);
-                setIsAuthenticated(true);
-                setNeedsOnboarding(true);
-              }
-            } catch (syncError) {
-              console.error('❌ Error al sincronizar en init:', syncError);
+              const needsOnboard = syncResponse.onboarded === false;
+              setNeedsOnboarding(needsOnboard);
+            } else {
               setUser(accounts[0]);
               setIsAuthenticated(true);
               setNeedsOnboarding(true);
             }
-          } catch (error) {
-            console.error('⚠️ Error al obtener token silenciosamente:', error);
-            setUser(null);
-            setIsAuthenticated(false);
-            setAccessToken(null);
+          } catch (syncError) {
+            console.error('❌ Error al sincronizar en init:', syncError);
+            setUser(accounts[0]);
+            setIsAuthenticated(true);
+            setNeedsOnboarding(true);
           }
+        } catch (error) {
+          console.error('⚠️ Error al obtener token silenciosamente:', error);
+          setUser(null);
+          setIsAuthenticated(false);
+          setAccessToken(null);
         }
-      } catch (error) {
-        console.error('❌ Error al inicializar MSAL:', error);
-      } finally {
-        setLoading(false);
       }
-    };
+    } catch (error) {
+      console.error('❌ Error al inicializar MSAL:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    initializeMsal();
-  }, []);
+  initializeMsal();
+}, []);
 
   /**
    * Login con credenciales tradicionales (correo y contraseña)
@@ -176,7 +174,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const login = async () => {
     try {
       setLoading(true);
-
+      await msalInstance.initialize();
       // 1) Login interactivo
       const loginResponse = await msalInstance.loginPopup(loginRequest);
       const account =
