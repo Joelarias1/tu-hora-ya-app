@@ -162,7 +162,7 @@ const Payment = () => {
 
       // redirigir al dashboard de cliente, donde verás la cita real
       setTimeout(() => {
-        navigate("/dashboard/cliente"); // ajusta la ruta que uses para ClientDashboard
+        navigate("/dashboard"); // ajusta la ruta que uses para ClientDashboard
       }, 1500);
     } catch (error: any) {
       console.error("Error en flujo de pago/cita/historial:", error);
