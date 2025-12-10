@@ -34,6 +34,7 @@ const ProfessionalProfile = () => {
 
           setProfessional({
             id: data.id_usuario_profesional,
+            usuarioId: data.id_usuario, 
             name: `${data.nombre || ''} ${data.apellido || ''}`.trim(),
             profession: data.id_profesion || 'Profesional',
             rubro: data.id_rubro,
@@ -275,7 +276,7 @@ const ProfessionalProfile = () => {
                   size="lg"
                   className="w-full"
                   variant="accent"
-                  onClick={() => navigate(`/reservar/${professional.id}`)}
+                    onClick={() => navigate(`/reservar/${professional.id}`)} 
                 >
                   <Calendar className="w-4 h-4 mr-2" />
                   Reservar Ahora

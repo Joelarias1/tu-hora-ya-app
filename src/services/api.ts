@@ -3,6 +3,29 @@ import { API_BASE_URL, API_ENDPOINTS, buildApiUrl } from '@/config/constants';
 /**
  * Cliente HTTP personalizado para comunicación con el backend
  */
+
+export interface BookingConfirmPayload {
+  professionalId: string;
+  professionalName: string;
+  profession: string;
+  price: number;
+  date: string;          // ej: "Lunes 2 de diciembre, 2025" (por ahora)
+  time: string;          // ej: "10:00"
+  location: string;
+  customer: {
+    name: string;
+    email: string;
+    phone: string;
+    notes?: string;
+  };
+  payment: {
+    method: string;      // "credit-card"
+    cardLast4: string;   // últimos 4 dígitos (simulado)
+    amount: number;
+    currency: string;    // "CLP"
+  };
+}
+
 class ApiClient {
   private baseUrl: string;
   private defaultHeaders: HeadersInit;
@@ -35,45 +58,70 @@ class ApiClient {
   /**
    * Método genérico para hacer peticiones HTTP
    */
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
+ private async request<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const url = `${this.baseUrl}${endpoint}`;
 
-    const config: RequestInit = {
-      ...options,
-      headers: {
-        ...this.defaultHeaders,
-        ...options.headers,
-      },
-    };
+  const config: RequestInit = {
+    ...options,
+    headers: {
+      ...this.defaultHeaders,
+      ...options.headers,
+    },
+  };
 
-    try {
-      console.log('➡️ FETCH', config.method ?? 'GET', url, 'headers:', config.headers);
-      const response = await fetch(url, config);
+  try {
+    console.log(
+      "➡️ FETCH",
+      config.method ?? "GET",
+      url,
+      "headers:",
+      config.headers
+    );
+    const response = await fetch(url, config);
 
-      // Si no hay contenido (204 No Content)
-      if (response.status === 204) {
-        return {} as T;
-      }
-
-      // Si hay error
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({
-          message: response.statusText,
-        }));
-        throw new Error(errorData.message || `Error ${response.status}`);
-      }
-
-      // Si hay respuesta exitosa con contenido
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('API Request Error:', error);
-      throw error;
+    // 204 No Content → devolvemos objeto vacío
+    if (response.status === 204) {
+      return {} as T;
     }
+
+    const text = await response.text();
+
+    // Si no hay cuerpo, devolvemos {}
+    if (!text) {
+      if (!response.ok) {
+        throw new Error(response.statusText || `Error ${response.status}`);
+      }
+      return {} as T;
+    }
+
+    // Intentamos parsear JSON
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.warn("Respuesta no es JSON válido, devolviendo texto crudo:", text);
+      data = text;
+    }
+
+    if (!response.ok) {
+      const message =
+        (data && data.message) ||
+        (typeof data === "string" ? data : "") ||
+        response.statusText ||
+        `Error ${response.status}`;
+      throw new Error(message);
+    }
+
+    return data as T;
+  } catch (error) {
+    console.error("API Request Error:", error);
+    throw error;
   }
+}
+
 
   /**
    * GET request
@@ -133,6 +181,13 @@ export const usuarioService = {
     apiClient.post(API_ENDPOINTS.USUARIO.UPDATE(id), data),
   delete: (id: string) => apiClient.delete(API_ENDPOINTS.USUARIO.DELETE(id)),
 };
+export const historialService = {
+  list: () => apiClient.get(`/historial`),
+  get: (id: string) => apiClient.get(`/historial/${id}`),
+  create: (id: string, data: any) =>
+    apiClient.post(`/historial/${id}`, data),
+  delete: (id: string) => apiClient.delete(`/historial/${id}`),
+};
 
 /**
  * Servicio de Clientes
@@ -146,7 +201,7 @@ export const clienteService = {
     apiClient.post(API_ENDPOINTS.CLIENTE.UPDATE(id), data),
   delete: (id: string) => apiClient.delete(API_ENDPOINTS.CLIENTE.DELETE(id)),
 };
-
+  
 /**
  * Servicio de Profesionales
  */
@@ -185,6 +240,8 @@ export const citaService = {
   update: (id: string, data: any) =>
     apiClient.post(API_ENDPOINTS.CITA.UPDATE(id), data),
   delete: (id: string) => apiClient.delete(API_ENDPOINTS.CITA.DELETE(id)),
+    getByCliente: (idCliente: string) =>
+    apiClient.get(`/cita/cliente/${idCliente}`), 
 };
 
 /**
@@ -251,5 +308,6 @@ export const useApi = () => {
     pagos: pagosService,
     rubros: rubroService,
     auth: authService,
+    historial: historialService,
   };
 };
