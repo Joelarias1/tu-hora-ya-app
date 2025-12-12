@@ -240,9 +240,12 @@ export const citaService = {
   update: (id: string, data: any) =>
     apiClient.post(API_ENDPOINTS.CITA.UPDATE(id), data),
   delete: (id: string) => apiClient.delete(API_ENDPOINTS.CITA.DELETE(id)),
-    getByCliente: (idCliente: string) =>
-    apiClient.get(`/cita/cliente/${idCliente}`), 
+  getByCliente: (idCliente: string) =>
+    apiClient.get(`/cita/cliente/${idCliente}`),
+  getByProfesional: (idProfesional: string) =>
+    apiClient.get(`/cita/profesional/${idProfesional}`),
 };
+
 
 /**
  * Servicio de Pagos

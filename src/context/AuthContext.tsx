@@ -132,7 +132,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               setIsAuthenticated(true);
 
               const needsOnboard = syncResponse.onboarded === false;
-              setNeedsOnboarding(needsOnboard);
+              setNeedsOnboarding(needsOnboard); 
             } else {
               // Backend no pudo sincronizar → usamos solo la cuenta de Azure
               setUser(accounts[0]);
