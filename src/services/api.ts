@@ -276,7 +276,8 @@ export const rubroService = {
 export const authService = {
   login: (correo: string, clave: string) =>
     apiClient.post(`/usuario/login`, { correo, clave }),
-   azureSync: () => apiClient.post(`/usuario/azure-sync`, {}),
+    azureSync: (data: { correo: string; nombre: string; accessToken?: string }) =>
+    apiClient.post(`/usuario/azure-sync`, data),
   completeOnboarding: (userId: string, data: {
     nombre: string;
     apellido: string;

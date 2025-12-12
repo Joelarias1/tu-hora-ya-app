@@ -1,7 +1,7 @@
-import { createContext, useContext, useEffect, useState } from 'react';
-import { PublicClientApplication, AccountInfo } from '@azure/msal-browser';
-import { msalConfig, loginRequest } from '@/config/authConfig';
-import { apiClient, authService } from '@/services/api';
+import { createContext, useContext, useEffect, useState } from "react";
+import { PublicClientApplication, AccountInfo } from "@azure/msal-browser";
+import { msalConfig, loginRequest } from "@/config/authConfig";
+import { apiClient, authService } from "@/services/api";
 
 // Crear instancia de MSAL
 const msalInstance = new PublicClientApplication(msalConfig);
@@ -13,7 +13,7 @@ interface UserData {
   correo: string;
   foto_url: string | null;
   id_rol?: string | null;
-  userType?: 'cliente' | 'profesional' | null;
+  userType?: "cliente" | "profesional" | null;
   telefono?: string | null;
   profesion?: string;
   rubro?: string;
@@ -46,14 +46,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
   // Inicializar MSAL al montar el componente
-useEffect(() => {
+  useEffect(() => {
   const initializeMsal = async () => {
     try {
       // 1) Inicializar MSAL SIEMPRE
       await msalInstance.initialize();
 
-      // 2) Revisar si hay sesión tradicional guardada
-      const savedUser = localStorage.getItem('user');
+      // 2) Revisar si hay sesión tradicional guardada (login con correo/clave)
+      const savedUser = localStorage.getItem("user");
       if (savedUser) {
         const userData = JSON.parse(savedUser);
         setUser(userData);
@@ -62,7 +62,7 @@ useEffect(() => {
         return;
       }
 
-      // 3) Ver si hay una cuenta de Azure activa
+      // 3) Ver si hay una cuenta de Azure activa en el navegador
       const accounts = msalInstance.getAllAccounts();
       if (accounts.length > 0) {
         try {
@@ -72,24 +72,51 @@ useEffect(() => {
           });
 
           if (!response.idToken) {
-            console.warn('⚠️ acquireTokenSilent no devolvió idToken en init');
+            console.warn("⚠️ acquireTokenSilent no devolvió idToken en init");
             return;
           }
 
-          console.log('🟣 acquireTokenSilent init:', {
+          console.log("🟣 acquireTokenSilent init:", {
             idToken: response.idToken,
             accessToken: response.accessToken,
+            claims: response.idTokenClaims,
           });
 
           const token = response.idToken;
-
           setAccessToken(token);
           apiClient.setAuthToken(token);
 
-          // 4) azure-sync
+          // ===== Sacar correo y nombre desde los claims del idToken =====
+          const claims: any = response.idTokenClaims || {};
+          const email: string =
+            (claims.emails && claims.emails[0]) ||
+            claims.email ||
+            claims.preferred_username;
+
+          if (!email) {
+            console.warn(
+              "⚠️ El token de Azure no trae email en emails/email/preferred_username. No se llama a azure-sync."
+            );
+            // Igual marcamos sesión de Azure para no dejar al usuario colgado
+            setUser(accounts[0]);
+            setIsAuthenticated(true);
+            setNeedsOnboarding(true);
+            return;
+          }
+
+          const nombreDesdeClaims: string =
+            claims.name || claims.given_name || "";
+
+          // 4) azure-sync: sincronizar/crear usuario interno en BD
           try {
-            const syncResponse: any = await authService.azureSync();
-            console.log('Respuesta de azure-sync (init):', syncResponse);
+            const syncResponse: any = await authService.azureSync({
+              correo: email,
+              nombre: nombreDesdeClaims,
+              // opcional, por si quieres usarlo luego en backend
+              accessToken: response.accessToken,
+            });
+
+            console.log("Respuesta de azure-sync (init):", syncResponse);
 
             if (syncResponse.success) {
               const userData: UserData = {
@@ -107,25 +134,26 @@ useEffect(() => {
               const needsOnboard = syncResponse.onboarded === false;
               setNeedsOnboarding(needsOnboard);
             } else {
+              // Backend no pudo sincronizar → usamos solo la cuenta de Azure
               setUser(accounts[0]);
               setIsAuthenticated(true);
               setNeedsOnboarding(true);
             }
           } catch (syncError) {
-            console.error('❌ Error al sincronizar en init:', syncError);
+            console.error("❌ Error al sincronizar en init:", syncError);
             setUser(accounts[0]);
             setIsAuthenticated(true);
             setNeedsOnboarding(true);
           }
         } catch (error) {
-          console.error('⚠️ Error al obtener token silenciosamente:', error);
+          console.error("⚠️ Error al obtener token silenciosamente:", error);
           setUser(null);
           setIsAuthenticated(false);
           setAccessToken(null);
         }
       }
     } catch (error) {
-      console.error('❌ Error al inicializar MSAL:', error);
+      console.error("❌ Error al inicializar MSAL:", error);
     } finally {
       setLoading(false);
     }
@@ -156,12 +184,12 @@ useEffect(() => {
         setIsAuthenticated(true);
 
         // Guardar sesión en localStorage
-        localStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem("user", JSON.stringify(userData));
       } else {
-        throw new Error(response.message || 'Credenciales inválidas');
+        throw new Error(response.message || "Credenciales inválidas");
       }
     } catch (error: any) {
-      console.error('❌ Error en login:', error);
+      console.error("❌ Error en login:", error);
       throw error;
     } finally {
       setLoading(false);
@@ -174,15 +202,14 @@ useEffect(() => {
   const login = async () => {
     try {
       setLoading(true);
-        await msalInstance.initialize();
+      await msalInstance.initialize();
       // 1) Login interactivo
       const loginResponse = await msalInstance.loginPopup(loginRequest);
-      const account =
-        loginResponse.account ?? msalInstance.getAllAccounts()[0];
+      const account = loginResponse.account ?? msalInstance.getAllAccounts()[0];
 
       if (!account) {
         throw new Error(
-          'No se encontró ninguna cuenta de Azure después del login'
+          "No se encontró ninguna cuenta de Azure después del login"
         );
       }
 
@@ -194,24 +221,45 @@ useEffect(() => {
         ...loginRequest,
         account,
       });
-      console.log('🟣 tokenResult (React):', tokenResult);
-      console.log('🟣 accessToken length:', tokenResult.accessToken?.length);
-      console.log('🟣 idToken length:', tokenResult.idToken?.length);
+
+      console.log("🟣 tokenResult (React):", tokenResult);
+      console.log("🟣 accessToken length:", tokenResult.accessToken?.length);
+      console.log("🟣 idToken length:", tokenResult.idToken?.length);
 
       const token = tokenResult.idToken;
-
       if (!token) {
-        console.error('⚠️ MSAL no devolvió idToken después del login');
-        throw new Error('No se pudo obtener el token de Azure AD');
+        console.error("⚠️ MSAL no devolvió idToken después del login");
+        throw new Error("No se pudo obtener el token de Azure AD");
       }
 
       setAccessToken(token);
-      apiClient.setAuthToken(token); // A partir de aquí TODAS las peticiones llevan Authorization: Bearer
+      apiClient.setAuthToken(token);
 
-      // 3) Sincronizar con el backend (crear/obtener usuario interno)
+      // ===== Sacar correo y nombre desde los claims =====
+      const claims: any = tokenResult.idTokenClaims || {};
+      const email: string =
+        (claims.emails && claims.emails[0]) ||
+        claims.email ||
+        claims.preferred_username;
+
+      if (!email) {
+        console.error(
+          "❌ El token de Azure no trae email en emails/email/preferred_username"
+        );
+        throw new Error("No se pudo obtener el correo desde Azure AD");
+      }
+
+      const nombreDesdeClaims: string = claims.name || claims.given_name || "";
+
+      // 3) Sincronizar con el backend
       try {
-        const syncResponse: any = await authService.azureSync();
-        console.log('Respuesta de azure-sync (login):', syncResponse);
+        const syncResponse: any = await authService.azureSync({
+          correo: email,
+          nombre: nombreDesdeClaims,
+          accessToken: tokenResult.accessToken, // opcional, el backend lo ignora por ahora
+        });
+
+        console.log("Respuesta de azure-sync (login):", syncResponse);
 
         if (syncResponse.success) {
           const userData: UserData = {
@@ -229,19 +277,18 @@ useEffect(() => {
           const needsOnboard = syncResponse.onboarded === false;
           setNeedsOnboarding(needsOnboard);
         } else {
-          // Backend no pudo sincronizar: usamos solo la cuenta de Azure
           setUser(account);
           setIsAuthenticated(true);
           setNeedsOnboarding(true);
         }
       } catch (syncError) {
-        console.error('❌ Error al sincronizar con BD:', syncError);
+        console.error("❌ Error al sincronizar con BD:", syncError);
         setUser(account);
         setIsAuthenticated(true);
         setNeedsOnboarding(true);
       }
     } catch (error) {
-      console.error('❌ Error en login:', error);
+      console.error("❌ Error en login:", error);
       throw error;
     } finally {
       setLoading(false);
@@ -271,11 +318,11 @@ useEffect(() => {
         const newToken = result.idToken;
         if (!newToken) return;
 
-        console.log('🔄 Token refrescado, idToken length:', newToken.length);
+        console.log("🔄 Token refrescado, idToken length:", newToken.length);
         setAccessToken(newToken);
         apiClient.setAuthToken(newToken);
       } catch (err) {
-        console.error('❌ Error refrescando token:', err);
+        console.error("❌ Error refrescando token:", err);
         // aquí podrías, si quieres, hacer logout automático o marcar que se requiere relogin
       }
     };
@@ -300,7 +347,7 @@ useEffect(() => {
       setLoading(true);
 
       // Limpiar sesión de localStorage
-      localStorage.removeItem('user');
+      localStorage.removeItem("user");
 
       // Logout de Azure AD si hay cuenta
       const accounts = msalInstance.getAllAccounts();
@@ -315,7 +362,7 @@ useEffect(() => {
       // Limpiar el token del API client
       apiClient.clearAuthToken();
     } catch (error) {
-      console.error('❌ Error en logout:', error);
+      console.error("❌ Error en logout:", error);
       throw error;
     } finally {
       setLoading(false);
@@ -355,7 +402,7 @@ useEffect(() => {
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth debe ser usado dentro de un AuthProvider');
+    throw new Error("useAuth debe ser usado dentro de un AuthProvider");
   }
   return context;
 };
