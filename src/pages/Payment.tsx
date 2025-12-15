@@ -142,7 +142,7 @@ const Payment = () => {
         hora: selectedTime,       // "10:00"
         comentario: customerData.notes || "",
         calificacion: "",         // vacío por ahora
-        id_tipo_cita: null,       // o un id_tipo_cita válido si ya tienes
+        id_tipo_cita: "presencial",       // o un id_tipo_cita válido si ya tienes
         id_pago: pagoId,
       });
 
