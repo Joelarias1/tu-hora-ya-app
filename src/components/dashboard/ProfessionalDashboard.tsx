@@ -1,7 +1,30 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
 import {
   Calendar,
   Clock,
@@ -14,24 +37,23 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  Edit2,
+  Trash2,
 } from "lucide-react";
+
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 
 // hooks / servicios
 import { useAuth } from "@/context/AuthContext";
-import {
-  citaService,
-  profesionalService,
-  usuarioService,          // 👈 usamos usuarioService, no clienteService
-} from "@/services/api";
+import { citaService, profesionalService, usuarioService } from "@/services/api";
 
 interface Appointment {
   id: string;
   client: string;
   service: string;
-  date: string;      // yyyy-MM-dd
-  time: string;      // HH:mm
+  date: string; // yyyy-MM-dd
+  time: string; // HH:mm
   duration: string;
   status: "confirmada" | "pendiente" | "completada" | "cancelada";
   price: number;
@@ -39,7 +61,7 @@ interface Appointment {
 
 interface CitaApi {
   id_cita: string;
-  id_usuario_cliente: string;        // guarda id_usuario
+  id_usuario_cliente: string;
   id_usuario_profesional: string;
   fecha: string;
   hora: string;
@@ -50,7 +72,7 @@ interface CitaApi {
 }
 
 interface ClienteApi {
-  id_usuario: string;                // 👈 viene de /usuario
+  id_usuario: string;
   nombre?: string;
   apellido?: string;
 }
@@ -79,6 +101,23 @@ export const ProfessionalDashboard = () => {
     completedThisMonth: 0,
   });
 
+  // ✅ Guardamos las citas reales (raw) para poder editar con seguridad
+  const [citaById, setCitaById] = useState<Record<string, CitaApi>>({});
+
+  // ✅ Edit modal state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({
+    fecha: "",
+    hora: "",
+    comentario: "",
+    id_tipo_cita: "",
+  });
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // ✅ Delete confirm state
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
   const getStatusIcon = (status: Appointment["status"]) => {
     switch (status) {
       case "confirmada":
@@ -92,240 +131,306 @@ export const ProfessionalDashboard = () => {
     }
   };
 
-  useEffect(() => {
-    const loadData = async () => {
-      if (!user) {
-        setLoading(false);
-        return;
-      }
+  const resolvedUserId = useMemo(() => {
+    if (!user) return null;
+    return (user as any).id_usuario || (user as any).id || null;
+  }, [user]);
 
-      // 1) id_usuario del usuario logueado
-      const userId =
-        (user as any).id_usuario ||
-        (user as any).id ||
-        null;
+  // ✅ Cargador reutilizable (para recargar después de editar/eliminar)
+  const loadData = useCallback(async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
-      if (!userId) {
-        console.warn("No se encontró id_usuario en el user");
-        setLoading(false);
+    if (!resolvedUserId) {
+      console.warn("No se encontró id_usuario en el user");
+      setLoading(false);
+      toast({
+        variant: "destructive",
+        title: "No se pudo cargar tu agenda",
+        description: "No se encontró el identificador de usuario en tu sesión.",
+      });
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // 1) Buscar registro en usuario_profesional vinculado a este usuario
+      const profesionales = (await profesionalService.list()) as ProfesionalApi[];
+      const profesionalActual = profesionales.find((p) => p.id_usuario === resolvedUserId);
+
+      if (!profesionalActual) {
         toast({
           variant: "destructive",
-          title: "No se pudo cargar tu agenda",
-          description:
-            "No se encontró el identificador de usuario en tu sesión.",
+          title: "No se encontró tu perfil profesional",
+          description: "Asegúrate de haber completado el onboarding como profesional.",
         });
         return;
       }
 
-      try {
-        setLoading(true);
+      const idProfesional = profesionalActual.id_usuario_profesional;
 
-        // 2) Buscar registro en usuario_profesional vinculado a este usuario
-        const profesionales = (await profesionalService.list()) as ProfesionalApi[];
+      // 2) Citas del profesional
+      const citas = (await citaService.getByProfesional(idProfesional)) as CitaApi[];
 
-        const profesionalActual = profesionales.find(
-          (p) => p.id_usuario === userId
-        );
-
-        if (!profesionalActual) {
-          console.warn(
-            "No se encontró registro en usuario_profesional para el usuario",
-            userId
-          );
-          setLoading(false);
-          toast({
-            variant: "destructive",
-            title: "No se encontró tu perfil profesional",
-            description:
-              "Asegúrate de haber completado el onboarding como profesional.",
-          });
-          return;
-        }
-
-        const idProfesional = profesionalActual.id_usuario_profesional;
-        console.log("👨‍⚕️ id_usuario_profesional detectado:", idProfesional);
-
-        // 3) Citas del profesional usando id_usuario_profesional
-        const citas = (await citaService.getByProfesional(
-          idProfesional
-        )) as CitaApi[];
-
-        if (!Array.isArray(citas) || citas.length === 0) {
-          setTodayAppointments([]);
-          setPendingRequests([]);
-          setStats({
-            totalBookings: 0,
-            monthlyEarnings: 0,
-            averageRating: 0,
-            totalReviews: 0,
-            pendingRequests: 0,
-            completedThisMonth: 0,
-          });
-          setLoading(false);
-          return;
-        }
-
-        // 4) Precio base desde usuario_profesional
-        let precioBase = 0;
-        try {
-          precioBase =
-            (profesionalActual.precioHora ??
-              profesionalActual.precio_hora ??
-              0) as number;
-        } catch (e) {
-          console.warn("No se pudo determinar precio_hora, usando 0");
-        }
-
-        // 5) Mapear clientes — OJO: usamos /usuario, no /usuariocliente
-        const clienteIds = Array.from(
-          new Set(citas.map((c) => c.id_usuario_cliente).filter(Boolean))
-        );
-        const clienteMap = new Map<string, ClienteApi>();
-
-        await Promise.all(
-          clienteIds.map(async (idCli) => {
-            try {
-              const cli = (await usuarioService.get(idCli)) as ClienteApi;
-              clienteMap.set(idCli, cli);
-            } catch (err) {
-              console.error("Error cargando cliente (usuario)", idCli, err);
-              // si falla, simplemente usaremos el id como nombre
-            }
-          })
-        );
-
-        const now = new Date();
-        const todayY = now.getFullYear();
-        const todayM = now.getMonth();
-        const todayD = now.getDate();
-
-        const currentMonth = todayM;
-        const currentYear = todayY;
-
-        const allAppointments: Appointment[] = [];
-        const reviews: number[] = [];
-
-        for (const cita of citas) {
-          const cli = clienteMap.get(cita.id_usuario_cliente);
-
-          const clientName =
-            cli && (cli.nombre || cli.apellido)
-              ? `${cli.nombre ?? ""} ${cli.apellido ?? ""}`.trim()
-              : cita.id_usuario_cliente || "Cliente";
-
-          const dateTime = new Date(`${cita.fecha}T${cita.hora}:00`);
-
-          let isToday = false;
-          let isFuture = true;
-          if (!isNaN(dateTime.getTime())) {
-            isToday =
-              dateTime.getFullYear() === todayY &&
-              dateTime.getMonth() === todayM &&
-              dateTime.getDate() === todayD;
-            isFuture = dateTime.getTime() >= now.getTime();
-          }
-
-          let status: Appointment["status"];
-          if (isFuture) {
-            status = isToday ? "confirmada" : "pendiente";
-          } else {
-            status = "completada";
-          }
-
-          if (cita.calificacion) {
-            const v = parseFloat(cita.calificacion);
-            if (!isNaN(v)) {
-              reviews.push(v);
-            }
-          }
-
-          const appointment: Appointment = {
-            id: cita.id_cita,
-            client: clientName,
-            service: cita.id_tipo_cita || "Sesión",
-            date: cita.fecha,
-            time: cita.hora,
-            duration: "1 hora",
-            status,
-            price: precioBase,
-          };
-
-          allAppointments.push(appointment);
-        }
-
-        // 6) separar citas de hoy y pendientes
-        const todayList = allAppointments.filter((a) => {
-          const d = new Date(`${a.date}T${a.time}:00`);
-          return (
-            !isNaN(d.getTime()) &&
-            d.getFullYear() === todayY &&
-            d.getMonth() === todayM &&
-            d.getDate() === todayD
-          );
-        });
-
-        const pendingList = allAppointments.filter((a) => {
-          const d = new Date(`${a.date}T${a.time}:00`);
-          return !isNaN(d.getTime()) && d.getTime() > now.getTime();
-        });
-
-        // 7) stats
-        const totalBookings = allAppointments.length;
-
-        const completedThisMonth = allAppointments.filter((a) => {
-          const d = new Date(`${a.date}T${a.time}:00`);
-          return (
-            !isNaN(d.getTime()) &&
-            d.getFullYear() === currentYear &&
-            d.getMonth() === currentMonth &&
-            a.status === "completada"
-          );
-        }).length;
-
-        const monthlyEarnings = completedThisMonth * precioBase;
-
-        let averageRating = 0;
-        let totalReviews = 0;
-        if (reviews.length > 0) {
-          const sum = reviews.reduce((acc, v) => acc + v, 0);
-          averageRating = Number((sum / reviews.length).toFixed(1));
-          totalReviews = reviews.length;
-        }
-
-        setTodayAppointments(todayList);
-        setPendingRequests(pendingList);
+      if (!Array.isArray(citas) || citas.length === 0) {
+        setTodayAppointments([]);
+        setPendingRequests([]);
+        setCitaById({});
         setStats({
-          totalBookings,
-          monthlyEarnings,
-          averageRating,
-          totalReviews,
-          pendingRequests: pendingList.length,
-          completedThisMonth,
+          totalBookings: 0,
+          monthlyEarnings: 0,
+          averageRating: 0,
+          totalReviews: 0,
+          pendingRequests: 0,
+          completedThisMonth: 0,
         });
-      } catch (error: any) {
-        console.error("Error cargando agenda del profesional:", error);
-        toast({
-          variant: "destructive",
-          title: "Error al cargar tu agenda",
-          description:
-            error?.message || "Intenta nuevamente en unos minutos.",
-        });
-      } finally {
-        setLoading(false);
+        return;
       }
-    };
 
+      // ✅ guardar raw
+      const rawMap: Record<string, CitaApi> = {};
+      for (const c of citas) rawMap[c.id_cita] = c;
+      setCitaById(rawMap);
+
+      // 3) Precio base
+      const precioBase =
+        (profesionalActual.precioHora ?? profesionalActual.precio_hora ?? 0) as number;
+
+      // 4) Mapear clientes desde /usuario
+      const clienteIds = Array.from(
+        new Set(citas.map((c) => c.id_usuario_cliente).filter(Boolean))
+      );
+
+      const clienteMap = new Map<string, ClienteApi>();
+
+      await Promise.all(
+        clienteIds.map(async (idCli) => {
+          try {
+            const cli = (await usuarioService.get(idCli)) as ClienteApi;
+            clienteMap.set(idCli, cli);
+          } catch (err) {
+            console.error("Error cargando cliente (usuario)", idCli, err);
+          }
+        })
+      );
+
+      const now = new Date();
+      const todayY = now.getFullYear();
+      const todayM = now.getMonth();
+      const todayD = now.getDate();
+
+      const currentMonth = todayM;
+      const currentYear = todayY;
+
+      const allAppointments: Appointment[] = [];
+      const reviews: number[] = [];
+
+      for (const cita of citas) {
+        const cli = clienteMap.get(cita.id_usuario_cliente);
+
+        const clientName =
+          cli && (cli.nombre || cli.apellido)
+            ? `${cli.nombre ?? ""} ${cli.apellido ?? ""}`.trim()
+            : cita.id_usuario_cliente || "Cliente";
+
+        const dateTime = new Date(`${cita.fecha}T${cita.hora}:00`);
+
+        let isToday = false;
+        let isFuture = true;
+
+        if (!isNaN(dateTime.getTime())) {
+          isToday =
+            dateTime.getFullYear() === todayY &&
+            dateTime.getMonth() === todayM &&
+            dateTime.getDate() === todayD;
+
+          isFuture = dateTime.getTime() >= now.getTime();
+        }
+
+        let status: Appointment["status"];
+        if (isFuture) status = isToday ? "confirmada" : "pendiente";
+        else status = "completada";
+
+        if (cita.calificacion) {
+          const v = parseFloat(cita.calificacion);
+          if (!isNaN(v)) reviews.push(v);
+        }
+
+        allAppointments.push({
+          id: cita.id_cita,
+          client: clientName,
+          service: cita.id_tipo_cita || "Sesión",
+          date: cita.fecha,
+          time: cita.hora,
+          duration: "1 hora",
+          status,
+          price: precioBase,
+        });
+      }
+
+      const todayList = allAppointments.filter((a) => {
+        const d = new Date(`${a.date}T${a.time}:00`);
+        return (
+          !isNaN(d.getTime()) &&
+          d.getFullYear() === todayY &&
+          d.getMonth() === todayM &&
+          d.getDate() === todayD
+        );
+      });
+
+      const pendingList = allAppointments.filter((a) => {
+        const d = new Date(`${a.date}T${a.time}:00`);
+        return !isNaN(d.getTime()) && d.getTime() > now.getTime();
+      });
+
+      const totalBookings = allAppointments.length;
+
+      const completedThisMonth = allAppointments.filter((a) => {
+        const d = new Date(`${a.date}T${a.time}:00`);
+        return (
+          !isNaN(d.getTime()) &&
+          d.getFullYear() === currentYear &&
+          d.getMonth() === currentMonth &&
+          a.status === "completada"
+        );
+      }).length;
+
+      const monthlyEarnings = completedThisMonth * precioBase;
+
+      let averageRating = 0;
+      let totalReviews = 0;
+
+      if (reviews.length > 0) {
+        const sum = reviews.reduce((acc, v) => acc + v, 0);
+        averageRating = Number((sum / reviews.length).toFixed(1));
+        totalReviews = reviews.length;
+      }
+
+      setTodayAppointments(todayList);
+      setPendingRequests(pendingList);
+      setStats({
+        totalBookings,
+        monthlyEarnings,
+        averageRating,
+        totalReviews,
+        pendingRequests: pendingList.length,
+        completedThisMonth,
+      });
+    } catch (error: any) {
+      console.error("Error cargando agenda del profesional:", error);
+      toast({
+        variant: "destructive",
+        title: "Error al cargar tu agenda",
+        description: error?.message || "Intenta nuevamente en unos minutos.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [user, resolvedUserId, toast]);
+
+  useEffect(() => {
     loadData();
-  }, [user, toast]);
+  }, [loadData]);
+
+  // ✅ abrir edición
+  const openEdit = (idCita: string) => {
+    const raw = citaById[idCita];
+    if (!raw) {
+      toast({
+        variant: "destructive",
+        title: "No se pudo editar",
+        description: "No se encontró el detalle de la cita.",
+      });
+      return;
+    }
+
+    setEditingId(idCita);
+    setEditForm({
+      fecha: raw.fecha ?? "",
+      hora: raw.hora ?? "",
+      comentario: raw.comentario ?? "",
+      id_tipo_cita: raw.id_tipo_cita ?? "",
+    });
+    setEditOpen(true);
+  };
+
+  // ✅ guardar edición
+  const saveEdit = async () => {
+    if (!editingId) return;
+
+    const raw = citaById[editingId];
+    if (!raw) return;
+
+    try {
+      setActionLoading(true);
+
+      const payload: CitaApi = {
+        ...raw,
+        fecha: editForm.fecha,
+        hora: editForm.hora,
+        comentario: editForm.comentario,
+        id_tipo_cita: editForm.id_tipo_cita ? editForm.id_tipo_cita : raw.id_tipo_cita,
+      };
+
+      await citaService.update(editingId, payload);
+
+      toast({
+        title: "Cita actualizada",
+        description: "Los cambios se guardaron correctamente.",
+      });
+
+      setEditOpen(false);
+      setEditingId(null);
+
+      await loadData();
+    } catch (e: any) {
+      console.error("Error editando cita:", e);
+      toast({
+        variant: "destructive",
+        title: "No se pudo actualizar la cita",
+        description: e?.message || "Intenta nuevamente.",
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ✅ eliminar cita
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    try {
+      setActionLoading(true);
+
+      await citaService.delete(deleteId);
+
+      toast({
+        title: "Cita eliminada",
+        description: "La cita fue eliminada correctamente.",
+      });
+
+      setDeleteId(null);
+      await loadData();
+    } catch (e: any) {
+      console.error("Error eliminando cita:", e);
+      toast({
+        variant: "destructive",
+        title: "No se pudo eliminar la cita",
+        description: e?.message || "Intenta nuevamente.",
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">
-            Mi Agenda
-          </h1>
+          <h1 className="text-3xl md:text-4xl font-bold mb-2">Mi Agenda</h1>
           <p className="text-muted-foreground">
             Gestiona tus citas y servicios profesionales
           </p>
@@ -348,17 +453,11 @@ export const ProfessionalDashboard = () => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">
-                  Ingresos del Mes
-                </p>
+                <p className="text-sm text-muted-foreground">Ingresos del Mes</p>
                 <p className="text-2xl font-bold">
-                  {loading
-                    ? "…"
-                    : `$${stats.monthlyEarnings.toLocaleString("es-CL")}`}
+                  {loading ? "…" : `$${stats.monthlyEarnings.toLocaleString("es-CL")}`}
                 </p>
-                <p className="text-xs text-green-500 mt-1">
-                  +0% vs mes anterior
-                </p>
+                <p className="text-xs text-green-500 mt-1">+0% vs mes anterior</p>
               </div>
               <div className="p-3 rounded-full bg-green-500/10">
                 <DollarSign className="w-6 h-6 text-green-500" />
@@ -371,15 +470,9 @@ export const ProfessionalDashboard = () => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">
-                  Citas Completadas
-                </p>
-                <p className="text-2xl font-bold">
-                  {loading ? "…" : stats.completedThisMonth}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Este mes
-                </p>
+                <p className="text-sm text-muted-foreground">Citas Completadas</p>
+                <p className="text-2xl font-bold">{loading ? "…" : stats.completedThisMonth}</p>
+                <p className="text-xs text-muted-foreground mt-1">Este mes</p>
               </div>
               <div className="p-3 rounded-full bg-primary/10">
                 <Calendar className="w-6 h-6 text-primary" />
@@ -413,9 +506,7 @@ export const ProfessionalDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Solicitudes</p>
-                <p className="text-2xl font-bold">
-                  {loading ? "…" : stats.pendingRequests}
-                </p>
+                <p className="text-2xl font-bold">{loading ? "…" : stats.pendingRequests}</p>
                 <p className="text-xs text-yellow-500 mt-1">Pendientes</p>
               </div>
               <div className="p-3 rounded-full bg-yellow-500/10">
@@ -435,9 +526,7 @@ export const ProfessionalDashboard = () => {
                 <Calendar className="w-5 h-5" />
                 Citas de Hoy
               </CardTitle>
-              <Badge variant="secondary">
-                {loading ? "…" : `${todayAppointments.length} citas`}
-              </Badge>
+              <Badge variant="secondary">{loading ? "…" : `${todayAppointments.length} citas`}</Badge>
             </div>
           </CardHeader>
           <CardContent>
@@ -460,6 +549,7 @@ export const ProfessionalDashboard = () => {
                       <Clock className="w-4 h-4 text-muted-foreground" />
                       <span className="font-semibold">{apt.time}</span>
                     </div>
+
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="font-medium truncate">{apt.client}</p>
@@ -469,14 +559,35 @@ export const ProfessionalDashboard = () => {
                         {apt.service} · {apt.duration}
                       </p>
                     </div>
+
                     <div className="text-right">
-                      <p className="font-semibold">
-                        ${apt.price.toLocaleString("es-CL")}
-                      </p>
+                      <p className="font-semibold">${apt.price.toLocaleString("es-CL")}</p>
                     </div>
+
+                    {/* ✅ Acciones */}
                     <div className="flex gap-1">
                       <Button variant="ghost" size="icon">
                         <MessageSquare className="w-4 h-4" />
+                      </Button>
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => openEdit(apt.id)}
+                        disabled={actionLoading}
+                        title="Editar"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </Button>
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDeleteId(apt.id)}
+                        disabled={actionLoading}
+                        title="Eliminar"
+                      >
+                        <Trash2 className="w-4 h-4 text-destructive" />
                       </Button>
                     </div>
                   </div>
@@ -513,20 +624,42 @@ export const ProfessionalDashboard = () => {
                         {req.date}
                       </Badge>
                     </div>
+
                     <p className="text-sm text-muted-foreground">
                       {req.service} · {req.time}
                     </p>
+
+                    {/* ✅ Acciones editar / eliminar */}
                     <div className="flex gap-2 pt-1">
-                      <Button size="sm" className="flex-1" disabled>
-                        <CheckCircle className="w-3 h-3 mr-1" />
-                        Aceptar
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => openEdit(req.id)}
+                        disabled={actionLoading}
+                      >
+                        <Edit2 className="w-3 h-3 mr-1" />
+                        Editar
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
                         className="flex-1"
-                        disabled
+                        onClick={() => setDeleteId(req.id)}
+                        disabled={actionLoading}
                       >
+                        <Trash2 className="w-3 h-3 mr-1 text-destructive" />
+                        Eliminar
+                      </Button>
+                    </div>
+
+                    {/* (por ahora dejas aceptar/rechazar deshabilitado como lo tenías) */}
+                    <div className="flex gap-2 pt-1">
+                      <Button size="sm" className="flex-1" disabled>
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Aceptar
+                      </Button>
+                      <Button size="sm" variant="outline" className="flex-1" disabled>
                         <XCircle className="w-3 h-3 mr-1" />
                         Rechazar
                       </Button>
@@ -574,9 +707,7 @@ export const ProfessionalDashboard = () => {
               <TrendingUp className="w-6 h-6 text-primary" />
             </div>
             <div>
-              <h3 className="font-semibold mb-2">
-                Funcionalidades Completas Próximamente
-              </h3>
+              <h3 className="font-semibold mb-2">Funcionalidades Completas Próximamente</h3>
               <p className="text-sm text-muted-foreground">
                 Este panel ya está leyendo tus citas reales. Más adelante podrás gestionar estados
                 (aceptar / rechazar), ver estadísticas avanzadas y responder a clientes desde aquí.
@@ -585,6 +716,81 @@ export const ProfessionalDashboard = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* ✅ MODAL EDITAR */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Editar cita</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Fecha</Label>
+                <Input
+                  type="date"
+                  value={editForm.fecha}
+                  onChange={(e) => setEditForm((s) => ({ ...s, fecha: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Hora</Label>
+                <Input
+                  type="time"
+                  value={editForm.hora}
+                  onChange={(e) => setEditForm((s) => ({ ...s, hora: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Tipo de cita (id_tipo_cita)</Label>
+              <Input
+                placeholder="Ej: 1, 2, KINESIO, etc."
+                value={editForm.id_tipo_cita}
+                onChange={(e) => setEditForm((s) => ({ ...s, id_tipo_cita: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Comentario</Label>
+              <Textarea
+                rows={4}
+                value={editForm.comentario}
+                onChange={(e) => setEditForm((s) => ({ ...s, comentario: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={actionLoading}>
+              Cancelar
+            </Button>
+            <Button onClick={saveEdit} disabled={actionLoading}>
+              Guardar cambios
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ✅ CONFIRM ELIMINAR */}
+      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar cita?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Se eliminará la cita seleccionada.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} disabled={actionLoading}>
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
