@@ -46,7 +46,11 @@ import { useToast } from "@/hooks/use-toast";
 
 // hooks / servicios
 import { useAuth } from "@/context/AuthContext";
-import { citaService, profesionalService, usuarioService } from "@/services/api";
+import {
+  citaService,
+  profesionalService,
+  usuarioService,
+} from "@/services/api";
 
 interface Appointment {
   id: string;
@@ -88,7 +92,11 @@ export const ProfessionalDashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useAuth();
-
+  // ✅ profesionalId para crear disponibilidad
+  const [idProfesional, setIdProfesional] = useState<string | null>(null);
+  type TimeRange = { enabled: boolean; start: string; end: string };
+  // ✅ Modal disponibilidad
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
   const [pendingRequests, setPendingRequests] = useState<Appointment[]>([]);
@@ -117,7 +125,18 @@ export const ProfessionalDashboard = () => {
 
   // ✅ Delete confirm state
   const [deleteId, setDeleteId] = useState<string | null>(null);
-
+  const [availabilityForm, setAvailabilityForm] = useState({
+    dateFrom: "",
+    dateTo: "",
+    durationMin: 60,
+    id_tipo_cita: "DISPONIBILIDAD",
+    comentario: "Bloque disponible",
+    ranges: [
+      { enabled: true, start: "09:00", end: "12:00" },
+      { enabled: true, start: "14:00", end: "18:00" },
+      { enabled: false, start: "19:00", end: "21:00" },
+    ] as TimeRange[],
+  });
   const getStatusIcon = (status: Appointment["status"]) => {
     switch (status) {
       case "confirmada":
@@ -135,6 +154,188 @@ export const ProfessionalDashboard = () => {
     if (!user) return null;
     return (user as any).id_usuario || (user as any).id || null;
   }, [user]);
+
+  //helpers de fechas
+  const timeToMinutes = (t: string) => {
+    const [hh, mm] = t.split(":").map((x) => parseInt(x, 10));
+    if (Number.isNaN(hh) || Number.isNaN(mm)) return NaN;
+    return hh * 60 + mm;
+  };
+
+  const minutesToTime = (m: number) => {
+    const hh = String(Math.floor(m / 60)).padStart(2, "0");
+    const mm = String(m % 60).padStart(2, "0");
+    return `${hh}:${mm}`;
+  };
+
+  const dateRangeInclusive = (from: string, to: string) => {
+    const start = new Date(`${from}T00:00:00`);
+    const end = new Date(`${to}T00:00:00`);
+    const out: string[] = [];
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return out;
+
+    const cur = new Date(start);
+    while (cur.getTime() <= end.getTime()) {
+      const y = cur.getFullYear();
+      const m = String(cur.getMonth() + 1).padStart(2, "0");
+      const d = String(cur.getDate()).padStart(2, "0");
+      out.push(`${y}-${m}-${d}`);
+      cur.setDate(cur.getDate() + 1);
+    }
+    return out;
+  };
+
+  const makeId = () => {
+    // crypto.randomUUID en navegadores modernos
+    // fallback simple por si acaso
+    return (globalThis.crypto as any)?.randomUUID
+      ? (globalThis.crypto as any).randomUUID()
+      : `cita_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  };
+
+  const createAvailability = async () => {
+    if (!idProfesional) {
+      toast({
+        variant: "destructive",
+        title: "No se encontró tu id profesional",
+        description:
+          "No se puede generar disponibilidad sin id_usuario_profesional.",
+      });
+      return;
+    }
+
+    const { dateFrom, dateTo, durationMin, ranges, id_tipo_cita, comentario } =
+      availabilityForm;
+
+    if (!dateFrom || !dateTo) {
+      toast({
+        variant: "destructive",
+        title: "Completa fechas",
+        description: "Selecciona desde y hasta.",
+      });
+      return;
+    }
+
+    const duration = Number(durationMin);
+    if (!duration || duration <= 0) {
+      toast({
+        variant: "destructive",
+        title: "Duración inválida",
+        description: "Usa minutos > 0.",
+      });
+      return;
+    }
+
+    const enabledRanges = ranges.filter((r) => r.enabled);
+    if (enabledRanges.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Sin horarios",
+        description: "Activa al menos un horario.",
+      });
+      return;
+    }
+
+    // Validar rangos
+    for (const r of enabledRanges) {
+      const s = timeToMinutes(r.start);
+      const e = timeToMinutes(r.end);
+      if (Number.isNaN(s) || Number.isNaN(e) || s >= e) {
+        toast({
+          variant: "destructive",
+          title: "Horario inválido",
+          description: `Revisa rango ${r.start} - ${r.end}`,
+        });
+        return;
+      }
+    }
+
+    // Duplicados existentes: (fecha|hora)
+    const existingKeys = new Set<string>();
+    Object.values(citaById).forEach((c) => {
+      if (c.id_usuario_profesional === idProfesional && c.fecha && c.hora) {
+        existingKeys.add(`${c.fecha}|${c.hora}`);
+      }
+    });
+
+    const days = dateRangeInclusive(dateFrom, dateTo);
+    if (days.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Fechas inválidas",
+        description: "Revisa el rango de fechas.",
+      });
+      return;
+    }
+
+    // Generar slots
+    const toCreate: Array<{ fecha: string; hora: string }> = [];
+
+    for (const day of days) {
+      for (const r of enabledRanges) {
+        const startM = timeToMinutes(r.start);
+        const endM = timeToMinutes(r.end);
+
+        for (let t = startM; t + duration <= endM; t += duration) {
+          const hora = minutesToTime(t);
+          const key = `${day}|${hora}`;
+          if (!existingKeys.has(key)) {
+            toCreate.push({ fecha: day, hora });
+          }
+        }
+      }
+    }
+
+    if (toCreate.length === 0) {
+      toast({
+        title: "Nada que crear",
+        description: "No se generaron nuevas horas (puede que ya existan).",
+      });
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+
+      // ✅ Crear en backend (secuencial para no saturar)
+      let created = 0;
+      for (const slot of toCreate) {
+        const id = makeId();
+
+        const payload: CitaApi = {
+          id_cita: id,
+          id_usuario_cliente: "", // ✅ disponible
+          id_usuario_profesional: idProfesional,
+          fecha: slot.fecha,
+          hora: slot.hora,
+          comentario: comentario || "",
+          calificacion: "",
+          id_tipo_cita: id_tipo_cita || "DISPONIBILIDAD",
+          id_pago: "",
+        };
+
+        await citaService.create(id, payload);
+        created++;
+      }
+
+      toast({
+        title: "Disponibilidad generada",
+        description: `Se crearon ${created} bloques de disponibilidad.`,
+      });
+
+      setAvailabilityOpen(false);
+      await loadData();
+    } catch (e: any) {
+      console.error("Error creando disponibilidad:", e);
+      toast({
+        variant: "destructive",
+        title: "No se pudo generar disponibilidad",
+        description: e?.message || "Intenta nuevamente.",
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   // ✅ Cargador reutilizable (para recargar después de editar/eliminar)
   const loadData = useCallback(async () => {
@@ -158,22 +359,28 @@ export const ProfessionalDashboard = () => {
       setLoading(true);
 
       // 1) Buscar registro en usuario_profesional vinculado a este usuario
-      const profesionales = (await profesionalService.list()) as ProfesionalApi[];
-      const profesionalActual = profesionales.find((p) => p.id_usuario === resolvedUserId);
+      const profesionales =
+        (await profesionalService.list()) as ProfesionalApi[];
+      const profesionalActual = profesionales.find(
+        (p) => p.id_usuario === resolvedUserId
+      );
 
       if (!profesionalActual) {
         toast({
           variant: "destructive",
           title: "No se encontró tu perfil profesional",
-          description: "Asegúrate de haber completado el onboarding como profesional.",
+          description:
+            "Asegúrate de haber completado el onboarding como profesional.",
         });
         return;
       }
 
       const idProfesional = profesionalActual.id_usuario_profesional;
-
+      setIdProfesional(idProfesional);
       // 2) Citas del profesional
-      const citas = (await citaService.getByProfesional(idProfesional)) as CitaApi[];
+      const citas = (await citaService.getByProfesional(
+        idProfesional
+      )) as CitaApi[];
 
       if (!Array.isArray(citas) || citas.length === 0) {
         setTodayAppointments([]);
@@ -196,8 +403,9 @@ export const ProfessionalDashboard = () => {
       setCitaById(rawMap);
 
       // 3) Precio base
-      const precioBase =
-        (profesionalActual.precioHora ?? profesionalActual.precio_hora ?? 0) as number;
+      const precioBase = (profesionalActual.precioHora ??
+        profesionalActual.precio_hora ??
+        0) as number;
 
       // 4) Mapear clientes desde /usuario
       const clienteIds = Array.from(
@@ -230,11 +438,13 @@ export const ProfessionalDashboard = () => {
 
       for (const cita of citas) {
         const cli = clienteMap.get(cita.id_usuario_cliente);
-
-        const clientName =
-          cli && (cli.nombre || cli.apellido)
-            ? `${cli.nombre ?? ""} ${cli.apellido ?? ""}`.trim()
-            : cita.id_usuario_cliente || "Cliente";
+        const isDisponible =
+          !cita.id_usuario_cliente || cita.id_usuario_cliente.trim() === "";
+        const clientName = isDisponible
+          ? "Disponible"
+          : cli && (cli.nombre || cli.apellido)
+          ? `${cli.nombre ?? ""} ${cli.apellido ?? ""}`.trim()
+          : cita.id_usuario_cliente || "Cliente";
 
         const dateTime = new Date(`${cita.fecha}T${cita.hora}:00`);
 
@@ -372,7 +582,9 @@ export const ProfessionalDashboard = () => {
         fecha: editForm.fecha,
         hora: editForm.hora,
         comentario: editForm.comentario,
-        id_tipo_cita: editForm.id_tipo_cita ? editForm.id_tipo_cita : raw.id_tipo_cita,
+        id_tipo_cita: editForm.id_tipo_cita
+          ? editForm.id_tipo_cita
+          : raw.id_tipo_cita,
       };
 
       await citaService.update(editingId, payload);
@@ -440,7 +652,7 @@ export const ProfessionalDashboard = () => {
             <Settings className="w-4 h-4 mr-2" />
             Configuración
           </Button>
-          <Button>
+          <Button onClick={() => setAvailabilityOpen(true)}>
             <Calendar className="w-4 h-4 mr-2" />
             Gestionar Disponibilidad
           </Button>
@@ -453,11 +665,17 @@ export const ProfessionalDashboard = () => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Ingresos del Mes</p>
-                <p className="text-2xl font-bold">
-                  {loading ? "…" : `$${stats.monthlyEarnings.toLocaleString("es-CL")}`}
+                <p className="text-sm text-muted-foreground">
+                  Ingresos del Mes
                 </p>
-                <p className="text-xs text-green-500 mt-1">+0% vs mes anterior</p>
+                <p className="text-2xl font-bold">
+                  {loading
+                    ? "…"
+                    : `$${stats.monthlyEarnings.toLocaleString("es-CL")}`}
+                </p>
+                <p className="text-xs text-green-500 mt-1">
+                  +0% vs mes anterior
+                </p>
               </div>
               <div className="p-3 rounded-full bg-green-500/10">
                 <DollarSign className="w-6 h-6 text-green-500" />
@@ -470,8 +688,12 @@ export const ProfessionalDashboard = () => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Citas Completadas</p>
-                <p className="text-2xl font-bold">{loading ? "…" : stats.completedThisMonth}</p>
+                <p className="text-sm text-muted-foreground">
+                  Citas Completadas
+                </p>
+                <p className="text-2xl font-bold">
+                  {loading ? "…" : stats.completedThisMonth}
+                </p>
                 <p className="text-xs text-muted-foreground mt-1">Este mes</p>
               </div>
               <div className="p-3 rounded-full bg-primary/10">
@@ -506,7 +728,9 @@ export const ProfessionalDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Solicitudes</p>
-                <p className="text-2xl font-bold">{loading ? "…" : stats.pendingRequests}</p>
+                <p className="text-2xl font-bold">
+                  {loading ? "…" : stats.pendingRequests}
+                </p>
                 <p className="text-xs text-yellow-500 mt-1">Pendientes</p>
               </div>
               <div className="p-3 rounded-full bg-yellow-500/10">
@@ -526,7 +750,9 @@ export const ProfessionalDashboard = () => {
                 <Calendar className="w-5 h-5" />
                 Citas de Hoy
               </CardTitle>
-              <Badge variant="secondary">{loading ? "…" : `${todayAppointments.length} citas`}</Badge>
+              <Badge variant="secondary">
+                {loading ? "…" : `${todayAppointments.length} citas`}
+              </Badge>
             </div>
           </CardHeader>
           <CardContent>
@@ -561,7 +787,9 @@ export const ProfessionalDashboard = () => {
                     </div>
 
                     <div className="text-right">
-                      <p className="font-semibold">${apt.price.toLocaleString("es-CL")}</p>
+                      <p className="font-semibold">
+                        ${apt.price.toLocaleString("es-CL")}
+                      </p>
                     </div>
 
                     {/* ✅ Acciones */}
@@ -659,7 +887,12 @@ export const ProfessionalDashboard = () => {
                         <CheckCircle className="w-3 h-3 mr-1" />
                         Aceptar
                       </Button>
-                      <Button size="sm" variant="outline" className="flex-1" disabled>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1"
+                        disabled
+                      >
                         <XCircle className="w-3 h-3 mr-1" />
                         Rechazar
                       </Button>
@@ -680,10 +913,6 @@ export const ProfessionalDashboard = () => {
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Button variant="outline" className="h-auto py-4 flex-col gap-2">
-              <Calendar className="w-5 h-5" />
-              <span className="text-sm">Disponibilidad</span>
-            </Button>
-            <Button variant="outline" className="h-auto py-4 flex-col gap-2">
               <DollarSign className="w-5 h-5" />
               <span className="text-sm">Precios</span>
             </Button>
@@ -694,6 +923,14 @@ export const ProfessionalDashboard = () => {
             <Button variant="outline" className="h-auto py-4 flex-col gap-2">
               <TrendingUp className="w-5 h-5" />
               <span className="text-sm">Estadísticas</span>
+            </Button>
+            <Button
+              variant="outline"
+              className="h-auto py-4 flex-col gap-2"
+              onClick={() => setAvailabilityOpen(true)}
+            >
+              <Calendar className="w-5 h-5" />
+              <span className="text-sm">Disponibilidad</span>
             </Button>
           </div>
         </CardContent>
@@ -707,10 +944,13 @@ export const ProfessionalDashboard = () => {
               <TrendingUp className="w-6 h-6 text-primary" />
             </div>
             <div>
-              <h3 className="font-semibold mb-2">Funcionalidades Completas Próximamente</h3>
+              <h3 className="font-semibold mb-2">
+                Funcionalidades Completas Próximamente
+              </h3>
               <p className="text-sm text-muted-foreground">
-                Este panel ya está leyendo tus citas reales. Más adelante podrás gestionar estados
-                (aceptar / rechazar), ver estadísticas avanzadas y responder a clientes desde aquí.
+                Este panel ya está leyendo tus citas reales. Más adelante podrás
+                gestionar estados (aceptar / rechazar), ver estadísticas
+                avanzadas y responder a clientes desde aquí.
               </p>
             </div>
           </div>
@@ -731,7 +971,9 @@ export const ProfessionalDashboard = () => {
                 <Input
                   type="date"
                   value={editForm.fecha}
-                  onChange={(e) => setEditForm((s) => ({ ...s, fecha: e.target.value }))}
+                  onChange={(e) =>
+                    setEditForm((s) => ({ ...s, fecha: e.target.value }))
+                  }
                 />
               </div>
               <div className="space-y-1">
@@ -739,7 +981,9 @@ export const ProfessionalDashboard = () => {
                 <Input
                   type="time"
                   value={editForm.hora}
-                  onChange={(e) => setEditForm((s) => ({ ...s, hora: e.target.value }))}
+                  onChange={(e) =>
+                    setEditForm((s) => ({ ...s, hora: e.target.value }))
+                  }
                 />
               </div>
             </div>
@@ -749,7 +993,9 @@ export const ProfessionalDashboard = () => {
               <Input
                 placeholder="Ej: 1, 2, KINESIO, etc."
                 value={editForm.id_tipo_cita}
-                onChange={(e) => setEditForm((s) => ({ ...s, id_tipo_cita: e.target.value }))}
+                onChange={(e) =>
+                  setEditForm((s) => ({ ...s, id_tipo_cita: e.target.value }))
+                }
               />
             </div>
 
@@ -758,13 +1004,19 @@ export const ProfessionalDashboard = () => {
               <Textarea
                 rows={4}
                 value={editForm.comentario}
-                onChange={(e) => setEditForm((s) => ({ ...s, comentario: e.target.value }))}
+                onChange={(e) =>
+                  setEditForm((s) => ({ ...s, comentario: e.target.value }))
+                }
               />
             </div>
           </div>
 
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={actionLoading}>
+            <Button
+              variant="outline"
+              onClick={() => setEditOpen(false)}
+              disabled={actionLoading}
+            >
               Cancelar
             </Button>
             <Button onClick={saveEdit} disabled={actionLoading}>
@@ -773,18 +1025,188 @@ export const ProfessionalDashboard = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* ✅ MODAL DISPONIBILIDAD */}
+      <Dialog open={availabilityOpen} onOpenChange={setAvailabilityOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Generar disponibilidad</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Desde</Label>
+                <Input
+                  type="date"
+                  value={availabilityForm.dateFrom}
+                  onChange={(e) =>
+                    setAvailabilityForm((s) => ({
+                      ...s,
+                      dateFrom: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label>Hasta</Label>
+                <Input
+                  type="date"
+                  value={availabilityForm.dateTo}
+                  onChange={(e) =>
+                    setAvailabilityForm((s) => ({
+                      ...s,
+                      dateTo: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Duración por cita (min)</Label>
+                <Input
+                  type="number"
+                  min={5}
+                  step={5}
+                  value={availabilityForm.durationMin}
+                  onChange={(e) =>
+                    setAvailabilityForm((s) => ({
+                      ...s,
+                      durationMin: Number(e.target.value),
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label>Tipo</Label>
+                <Input
+                  value={availabilityForm.id_tipo_cita}
+                  onChange={(e) =>
+                    setAvailabilityForm((s) => ({
+                      ...s,
+                      id_tipo_cita: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Horarios (hasta 3 por día)</Label>
+
+              {availabilityForm.ranges.map((r, idx) => (
+                <div
+                  key={idx}
+                  className="grid grid-cols-12 gap-2 items-center border rounded-lg p-3"
+                >
+                  <div className="col-span-2 flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={r.enabled}
+                      onChange={(e) =>
+                        setAvailabilityForm((s) => {
+                          const copy = [...s.ranges];
+                          copy[idx] = {
+                            ...copy[idx],
+                            enabled: e.target.checked,
+                          };
+                          return { ...s, ranges: copy };
+                        })
+                      }
+                    />
+                    <span className="text-sm font-medium">#{idx + 1}</span>
+                  </div>
+
+                  <div className="col-span-5 space-y-1">
+                    <Label className="text-xs">Inicio</Label>
+                    <Input
+                      type="time"
+                      value={r.start}
+                      onChange={(e) =>
+                        setAvailabilityForm((s) => {
+                          const copy = [...s.ranges];
+                          copy[idx] = { ...copy[idx], start: e.target.value };
+                          return { ...s, ranges: copy };
+                        })
+                      }
+                      disabled={!r.enabled}
+                    />
+                  </div>
+
+                  <div className="col-span-5 space-y-1">
+                    <Label className="text-xs">Fin</Label>
+                    <Input
+                      type="time"
+                      value={r.end}
+                      onChange={(e) =>
+                        setAvailabilityForm((s) => {
+                          const copy = [...s.ranges];
+                          copy[idx] = { ...copy[idx], end: e.target.value };
+                          return { ...s, ranges: copy };
+                        })
+                      }
+                      disabled={!r.enabled}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-1">
+              <Label>Comentario (opcional)</Label>
+              <Textarea
+                rows={3}
+                value={availabilityForm.comentario}
+                onChange={(e) =>
+                  setAvailabilityForm((s) => ({
+                    ...s,
+                    comentario: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Esto creará “citas disponibles” (sin cliente) por cada día y cada
+              rango, según la duración.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setAvailabilityOpen(false)}
+              disabled={actionLoading}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={createAvailability} disabled={actionLoading}>
+              Generar disponibilidad
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ✅ CONFIRM ELIMINAR */}
-      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+      <AlertDialog
+        open={!!deleteId}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar cita?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. Se eliminará la cita seleccionada.
+              Esta acción no se puede deshacer. Se eliminará la cita
+              seleccionada.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={actionLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel disabled={actionLoading}>
+              Cancelar
+            </AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete} disabled={actionLoading}>
               Eliminar
             </AlertDialogAction>

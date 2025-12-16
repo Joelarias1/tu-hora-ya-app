@@ -5,10 +5,35 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ReviewCard } from "@/components/ReviewCard";
-import { profesionalService } from "@/services/api";
-import { Star, MapPin, Calendar, DollarSign, Briefcase, Award, ArrowLeft, Loader2 } from "lucide-react";
+import { profesionalService, citaService } from "@/services/api";
+import {
+  Star,
+  MapPin,
+  Calendar,
+  DollarSign,
+  Briefcase,
+  Award,
+  ArrowLeft,
+  Loader2,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { getInitials, getAvatarColor, isValidImageUrl } from "@/lib/utils/avatar";
+import {
+  getInitials,
+  getAvatarColor,
+  isValidImageUrl,
+} from "@/lib/utils/avatar";
+
+interface CitaApi {
+  id_cita: string;
+  id_usuario_cliente: string;
+  id_usuario_profesional: string;
+  fecha: string; // yyyy-MM-dd
+  hora: string; // HH:mm
+  comentario: string;
+  calificacion: string;
+  id_tipo_cita: string | null;
+  id_pago: string;
+}
 
 const ProfessionalProfile = () => {
   const { id } = useParams();
@@ -23,42 +48,110 @@ const ProfessionalProfile = () => {
       try {
         setLoading(true);
         const data: any = await profesionalService.get(id!);
-
+        const citas = (await citaService.getByProfesional(
+          data.id_usuario_profesional
+        )) as CitaApi[];
+        const now = new Date();
         if (data) {
           const serviciosList = data.servicios
-            ? data.servicios.split(',').map((s: string) => s.trim()).filter(Boolean)
+            ? data.servicios
+                .split(",")
+                .map((s: string) => s.trim())
+                .filter(Boolean)
             : [data.id_servicio_profesional].filter(Boolean);
 
           const locationParts = [data.ciudad, data.pais].filter(Boolean);
-          const location = locationParts.length > 0 ? locationParts.join(', ') : 'Sin ubicación';
+          const location =
+            locationParts.length > 0
+              ? locationParts.join(", ")
+              : "Sin ubicación";
+          // Disponibilidad real = citas sin cliente (vacías) y futuras
+          const disponibles = (Array.isArray(citas) ? citas : [])
+            .filter(
+              (c) => !c.id_usuario_cliente || c.id_usuario_cliente.trim() === ""
+            )
+            .filter((c) => {
+              const dt = new Date(`${c.fecha}T${c.hora}:00`);
+              return !isNaN(dt.getTime()) && dt.getTime() >= now.getTime();
+            })
+            .sort((a, b) => {
+              const da = new Date(`${a.fecha}T${a.hora}:00`).getTime();
+              const db = new Date(`${b.fecha}T${b.hora}:00`).getTime();
+              return da - db;
+            });
+
+          // Agrupar por fecha para mostrar "Próximas disponibilidades"
+          const byDate = new Map<string, string[]>();
+          for (const c of disponibles) {
+            const list = byDate.get(c.fecha) ?? [];
+            if (!list.includes(c.hora)) list.push(c.hora);
+            byDate.set(c.fecha, list);
+          }
+          for (const [k, v] of byDate.entries()) {
+            v.sort();
+            byDate.set(k, v);
+          }
+
+          // Tomar 3 próximos días con horas
+          const availability = Array.from(byDate.entries())
+            .slice(0, 3)
+            .map(([fecha, slots]) => {
+              const d = new Date(`${fecha}T00:00:00`);
+              const label = new Intl.DateTimeFormat("es-CL", {
+                weekday: "long",
+                day: "2-digit",
+                month: "short",
+              }).format(d);
+
+              const day = label.charAt(0).toUpperCase() + label.slice(1);
+              return { day, slots };
+            });
+
+          // Rating real (desde calificacion)
+          const ratings = (Array.isArray(citas) ? citas : [])
+            .map((c) => parseFloat(c.calificacion))
+            .filter((n) => !isNaN(n));
+
+          const avgRating =
+            ratings.length > 0
+              ? Number(
+                  (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(
+                    1
+                  )
+                )
+              : 0;
 
           setProfessional({
             id: data.id_usuario_profesional,
-            usuarioId: data.id_usuario, 
-            name: `${data.nombre || ''} ${data.apellido || ''}`.trim(),
-            profession: data.id_profesion || 'Profesional',
+            usuarioId: data.id_usuario,
+            name: `${data.nombre || ""} ${data.apellido || ""}`.trim(),
+            profession: data.id_profesion || "Profesional",
             rubro: data.id_rubro,
             image: data.foto_url || null,
-            rating: 5.0,
-            reviewCount: 0,
+
+            rating: avgRating,
+            reviewCount: ratings.length,
+
             pricePerHour: data.precioHora || 0,
             location,
-            experience: data.experiencia || 'Sin especificar',
-            description: data.descripcion || 'Este profesional aún no ha agregado una descripción.',
-            services: serviciosList.length > 0 ? serviciosList : ['Sin servicios especificados'],
-            availability: [
-              { day: 'Lunes', slots: ['09:00', '10:00', '14:00', '15:00'] },
-              { day: 'Martes', slots: ['09:00', '10:00', '14:00', '15:00'] },
-              { day: 'Miércoles', slots: ['09:00', '10:00', '14:00', '15:00'] }
-            ]
+            experience: data.experiencia || "Sin especificar",
+            description:
+              data.descripcion ||
+              "Este profesional aún no ha agregado una descripción.",
+            services:
+              serviciosList.length > 0
+                ? serviciosList
+                : ["Sin servicios especificados"],
+
+            availability, // ✅ REAL
           });
         }
       } catch (error: any) {
-        console.error('Error cargando profesional:', error);
+        console.error("Error cargando profesional:", error);
         toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'No se pudo cargar la información del profesional',
+          variant: "destructive",
+          title: "Error",
+          description: "No se pudo cargar la información del profesional",
         });
         setProfessional(null);
       } finally {
@@ -125,7 +218,11 @@ const ProfessionalProfile = () => {
                       className="w-full md:w-48 h-48 object-cover rounded-lg"
                     />
                   ) : (
-                    <div className={`w-full md:w-48 h-48 rounded-lg flex items-center justify-center ${getAvatarColor(professional.name)}`}>
+                    <div
+                      className={`w-full md:w-48 h-48 rounded-lg flex items-center justify-center ${getAvatarColor(
+                        professional.name
+                      )}`}
+                    >
                       <span className="text-5xl font-bold text-white">
                         {getInitials(professional.name)}
                       </span>
@@ -134,7 +231,9 @@ const ProfessionalProfile = () => {
 
                   <div className="flex-1 space-y-4">
                     <div>
-                      <h1 className="text-3xl font-bold mb-2">{professional.name}</h1>
+                      <h1 className="text-3xl font-bold mb-2">
+                        {professional.name}
+                      </h1>
                       <p className="text-xl text-primary font-medium mb-3">
                         {professional.profession}
                       </p>
@@ -142,7 +241,9 @@ const ProfessionalProfile = () => {
                       <div className="flex flex-wrap gap-4 text-sm">
                         <div className="flex items-center gap-1">
                           <Star className="w-4 h-4 fill-accent text-accent" />
-                          <span className="font-bold">{professional.rating}</span>
+                          <span className="font-bold">
+                            {professional.rating}
+                          </span>
                           <span className="text-muted-foreground">
                             ({professional.reviewCount} reseñas)
                           </span>
@@ -237,7 +338,7 @@ const ProfessionalProfile = () => {
                   <div className="flex items-baseline gap-2">
                     <DollarSign className="w-5 h-5 text-primary" />
                     <span className="text-3xl font-bold text-primary">
-                      ${professional.pricePerHour.toLocaleString('es-CL')}
+                      ${professional.pricePerHour.toLocaleString("es-CL")}
                     </span>
                     <span className="text-muted-foreground">/ consulta</span>
                   </div>
@@ -254,10 +355,16 @@ const ProfessionalProfile = () => {
                         key={day.day}
                         className="p-3 border rounded-lg hover:bg-muted/50 transition-colors"
                       >
-                        <div className="font-medium text-sm mb-1">{day.day}</div>
+                        <div className="font-medium text-sm mb-1">
+                          {day.day}
+                        </div>
                         <div className="flex flex-wrap gap-1">
                           {day.slots.slice(0, 4).map((slot) => (
-                            <Badge key={slot} variant="outline" className="text-xs">
+                            <Badge
+                              key={slot}
+                              variant="outline"
+                              className="text-xs"
+                            >
                               {slot}
                             </Badge>
                           ))}
@@ -276,7 +383,7 @@ const ProfessionalProfile = () => {
                   size="lg"
                   className="w-full"
                   variant="accent"
-                    onClick={() => navigate(`/reservar/${professional.id}`)} 
+                  onClick={() => navigate(`/reservar/${professional.id}`)}
                 >
                   <Calendar className="w-4 h-4 mr-2" />
                   Reservar Ahora

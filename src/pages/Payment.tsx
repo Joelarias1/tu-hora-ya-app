@@ -37,6 +37,7 @@ interface BookingData {
     pricePerHour: number;
     location: string;
   };
+   selectedCitaId: string
   selectedDate: string;     // texto bonito "Lunes 2 de diciembre..."
   selectedTime: string;
   customerData: {
@@ -89,8 +90,8 @@ const Payment = () => {
     );
   }
 
-  const { professional, selectedDate, selectedTime, customerData, meta } =
-    bookingData;
+const { professional, selectedDate, selectedTime, selectedCitaId, customerData, meta } = bookingData;
+
   const total = professional.pricePerHour;
 
   const handlePayment = async (e: React.FormEvent) => {
@@ -123,9 +124,8 @@ const Payment = () => {
     const idProfesional = professional.id;
 
     const pagoId = generateId();
-    const citaId = generateId();
     const historialId = generateId();
-
+    const existing = await citaService.get(selectedCitaId);
     try {
       // 1) Crear pago (simulado como PAGADO)
       await pagosService.create(pagoId, {
@@ -134,23 +134,24 @@ const Payment = () => {
       });
 
       // 2) Crear cita vinculada al pago
-      await citaService.create(citaId, {
-        id_cita: citaId,
+      await citaService.update(selectedCitaId, {
+        id_cita: selectedCitaId,
         id_usuario_cliente: idCliente,
         id_usuario_profesional: idProfesional,
         fecha: fechaBD,           // ej: "2025-12-02"
         hora: selectedTime,       // "10:00"
-        comentario: customerData.notes || "",
+        
         calificacion: "",         // vacío por ahora
         id_tipo_cita: "presencial",       // o un id_tipo_cita válido si ya tienes
         id_pago: pagoId,
+        comentario: customerData.notes || "",
       });
 
       // 3) Registrar historial
       await historialService.create(historialId, {
         id_historial: historialId,
         comentario: `Cita creada y pagada con tarjeta **** **** **** ${cardLast4}`,
-        id_cita: citaId,
+        id_cita: selectedCitaId,
       });
 
       setProcessing(false);

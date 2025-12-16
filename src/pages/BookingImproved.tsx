@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { profesionalService } from "@/services/api";
+import { profesionalService, citaService } from "@/services/api";
 import {
   Calendar,
   Clock,
@@ -32,6 +32,20 @@ interface ProfessionalView {
   location: string;
 }
 
+interface CitaApi {
+  id_cita: string;
+  id_usuario_cliente: string;
+  id_usuario_profesional: string;
+  fecha: string; // yyyy-MM-dd
+  hora: string; // HH:mm
+  comentario: string;
+  calificacion: string;
+  id_tipo_cita: string | null;
+  id_pago: string;
+}
+
+type Slot = { id_cita: string; hora: string };
+
 const BookingImproved = () => {
   const { id } = useParams<{ id: string }>(); // id_usuario_profesional
   const navigate = useNavigate();
@@ -42,6 +56,8 @@ const BookingImproved = () => {
 
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [selectedTime, setSelectedTime] = useState("");
+  const [selectedCitaId, setSelectedCitaId] = useState(""); // ✅ NUEVO
+
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -49,20 +65,50 @@ const BookingImproved = () => {
     notes: "",
   });
 
-  // Slots simulados (más adelante los puedes traer del backend)
-  const availableSlots = [
-    "09:00",
-    "10:00",
-    "11:00",
-    "12:00",
-    "14:00",
-    "15:00",
-    "16:00",
-    "17:00",
-    "18:00",
-  ];
+  // ✅ Disponibilidad REAL: Record<yyyy-MM-dd, Slot[]>
+  const [availabilityMap, setAvailabilityMap] = useState<Record<string, Slot[]>>({});
 
-  // Cargar profesional DESDE el backend usando profesionalService
+  // ✅ cargar disponibilidad real
+  useEffect(() => {
+    const loadAvailability = async () => {
+      if (!id) return;
+
+      try {
+        const citas = (await citaService.getByProfesional(id)) as CitaApi[];
+        const now = new Date();
+
+        const map: Record<string, Slot[]> = {};
+
+        (Array.isArray(citas) ? citas : [])
+          // solo “disponibles”: sin cliente asignado
+          .filter((c) => !c.id_usuario_cliente || c.id_usuario_cliente.trim() === "")
+          // solo futuras
+          .filter((c) => {
+            const dt = new Date(`${c.fecha}T${c.hora}:00`);
+            return !isNaN(dt.getTime()) && dt.getTime() >= now.getTime();
+          })
+          .forEach((c) => {
+            map[c.fecha] = map[c.fecha] ?? [];
+            if (!map[c.fecha].some((x) => x.hora === c.hora)) {
+              map[c.fecha].push({ id_cita: c.id_cita, hora: c.hora });
+            }
+          });
+
+        Object.keys(map).forEach((k) =>
+          map[k].sort((a, b) => a.hora.localeCompare(b.hora))
+        );
+
+        setAvailabilityMap(map);
+      } catch (e) {
+        console.error("Error cargando disponibilidades:", e);
+        setAvailabilityMap({});
+      }
+    };
+
+    loadAvailability();
+  }, [id]);
+
+  // ✅ Cargar profesional desde backend
   useEffect(() => {
     const loadProfessional = async () => {
       if (!id) {
@@ -72,7 +118,7 @@ const BookingImproved = () => {
 
       try {
         setLoading(true);
-        const data: any = await profesionalService.get(id); // /bff/usuarioprofesional/{id}
+        const data: any = await profesionalService.get(id);
 
         if (!data) {
           setProfessional(null);
@@ -111,55 +157,48 @@ const BookingImproved = () => {
     loadProfessional();
   }, [id, toast]);
 
-const handleContinueToPayment = () => {
-  if (!professional) return;
+  const handleContinueToPayment = () => {
+    if (!professional) return;
 
-  if (!selectedDate || !selectedTime) {
-    toast({
-      title: "Error",
-      description: "Por favor selecciona fecha y hora",
-      variant: "destructive",
-    });
-    return;
-  }
+    if (!selectedDate || !selectedTime || !selectedCitaId) {
+      toast({
+        title: "Error",
+        description: "Por favor selecciona fecha y hora disponible",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  if (!formData.name || !formData.email || !formData.phone) {
-    toast({
-      title: "Error",
-      description: "Por favor completa todos los campos requeridos",
-      variant: "destructive",
-    });
-    return;
-  }
+    if (!formData.name || !formData.email || !formData.phone) {
+      toast({
+        title: "Error",
+        description: "Por favor completa todos los campos requeridos",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  const prettyDate = format(
-    selectedDate,
-    "EEEE d 'de' MMMM, yyyy",
-    { locale: es }
-  );
+    const prettyDate = format(selectedDate, "EEEE d 'de' MMMM, yyyy", { locale: es });
+    const dateISO = format(selectedDate, "yyyy-MM-dd");
 
-  const dateISO = format(selectedDate, "yyyy-MM-dd");
-
-    // Navegar a /pago con datos de la reserva
-  navigate("/pago", {
-    state: {
-      professional: {
-        id: professional.id,
-        name: professional.name,
-        profession: professional.profession,
-        image: professional.image,
-        pricePerHour: professional.pricePerHour,
-        location: professional.location,
+    navigate("/pago", {
+      state: {
+        professional: {
+          id: professional.id,
+          name: professional.name,
+          profession: professional.profession,
+          image: professional.image,
+          pricePerHour: professional.pricePerHour,
+          location: professional.location,
+        },
+        selectedDate: prettyDate,
+        selectedTime,
+        selectedCitaId, // ✅ MUY IMPORTANTE (para update en Payment)
+        customerData: formData,
+        meta: { dateISO },
       },
-      selectedDate: prettyDate,       // para mostrar
-      selectedTime: selectedTime,
-      customerData: formData,
-      meta: {
-        dateISO,                      // 👈 para guardar en la BD
-      },
-    },
-  });
-};
+    });
+  };
 
   if (loading) {
     return (
@@ -179,9 +218,7 @@ const handleContinueToPayment = () => {
         <Navbar />
         <div className="container mx-auto px-4 py-16 text-center">
           <h1 className="text-2xl font-bold mb-4">Profesional no encontrado</h1>
-          <Button onClick={() => navigate("/profesionales")}>
-            Volver a la Búsqueda
-          </Button>
+          <Button onClick={() => navigate("/profesionales")}>Volver a la Búsqueda</Button>
         </div>
       </div>
     );
@@ -221,12 +258,8 @@ const handleContinueToPayment = () => {
                     />
                     <div>
                       <h3 className="font-bold text-lg">{professional.name}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {professional.profession}
-                      </p>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {professional.location}
-                      </p>
+                      <p className="text-sm text-muted-foreground">{professional.profession}</p>
+                      <p className="text-sm text-muted-foreground mt-1">{professional.location}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -240,6 +273,7 @@ const handleContinueToPayment = () => {
                     Selecciona Fecha y Hora
                   </CardTitle>
                 </CardHeader>
+
                 <CardContent className="space-y-6">
                   {/* Date Picker */}
                   <div className="space-y-2">
@@ -261,6 +295,7 @@ const handleContinueToPayment = () => {
                           )}
                         </Button>
                       </PopoverTrigger>
+
                       <PopoverContent className="w-auto p-0 z-50" align="start">
                         <CalendarComponent
                           mode="single"
@@ -268,11 +303,34 @@ const handleContinueToPayment = () => {
                           onSelect={(date) => {
                             setSelectedDate(date);
                             setSelectedTime("");
+                            setSelectedCitaId("");
                           }}
-                          disabled={(date) =>
-                            date < new Date() ||
-                            date > new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
-                          }
+                          disabled={(date) => {
+                            const today = new Date();
+                            today.setHours(0, 0, 0, 0);
+
+                            const max = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+                            max.setHours(0, 0, 0, 0);
+
+                            const d = new Date(date);
+                            d.setHours(0, 0, 0, 0);
+
+                            const dateISO = format(d, "yyyy-MM-dd");
+                            const hasSlots = (availabilityMap[dateISO]?.length ?? 0) > 0;
+
+                            return d < today || d > max || !hasSlots;
+                          }}
+                          modifiers={{
+                            available: (date) => {
+                              const d = new Date(date);
+                              d.setHours(0, 0, 0, 0);
+                              const iso = format(d, "yyyy-MM-dd");
+                              return (availabilityMap[iso]?.length ?? 0) > 0;
+                            },
+                          }}
+                          modifiersClassNames={{
+                            available: "border border-primary/40",
+                          }}
                           initialFocus
                           className="pointer-events-auto"
                           locale={es}
@@ -285,19 +343,38 @@ const handleContinueToPayment = () => {
                   {selectedDate && (
                     <div className="space-y-2">
                       <Label>Hora Disponible</Label>
-                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                        {availableSlots.map((slot) => (
-                          <Button
-                            key={slot}
-                            variant={selectedTime === slot ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => setSelectedTime(slot)}
-                            className="h-10"
-                          >
-                            {slot}
-                          </Button>
-                        ))}
-                      </div>
+
+                      {(() => {
+                        const dateISO = format(selectedDate, "yyyy-MM-dd");
+                        const slots = availabilityMap[dateISO] ?? [];
+
+                        if (slots.length === 0) {
+                          return (
+                            <p className="text-sm text-muted-foreground">
+                              No hay horarios disponibles para este día.
+                            </p>
+                          );
+                        }
+
+                        return (
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                            {slots.map((slot) => (
+                              <Button
+                                key={slot.id_cita}
+                                variant={selectedCitaId === slot.id_cita ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedTime(slot.hora);
+                                  setSelectedCitaId(slot.id_cita);
+                                }}
+                                className="h-10"
+                              >
+                                {slot.hora}
+                              </Button>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </CardContent>
@@ -311,6 +388,7 @@ const handleContinueToPayment = () => {
                     Tus Datos
                   </CardTitle>
                 </CardHeader>
+
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="name">Nombre Completo *</Label>
@@ -318,9 +396,7 @@ const handleContinueToPayment = () => {
                       id="name"
                       required
                       value={formData.name}
-                      onChange={(e) =>
-                        setFormData({ ...formData, name: e.target.value })
-                      }
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       placeholder="Juan Pérez"
                     />
                   </div>
@@ -332,9 +408,7 @@ const handleContinueToPayment = () => {
                       type="email"
                       required
                       value={formData.email}
-                      onChange={(e) =>
-                        setFormData({ ...formData, email: e.target.value })
-                      }
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                       placeholder="juan@ejemplo.cl"
                     />
                   </div>
@@ -346,9 +420,7 @@ const handleContinueToPayment = () => {
                       type="tel"
                       required
                       value={formData.phone}
-                      onChange={(e) =>
-                        setFormData({ ...formData, phone: e.target.value })
-                      }
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                       placeholder="+56 9 1234 5678"
                     />
                   </div>
@@ -358,9 +430,7 @@ const handleContinueToPayment = () => {
                     <Textarea
                       id="notes"
                       value={formData.notes}
-                      onChange={(e) =>
-                        setFormData({ ...formData, notes: e.target.value })
-                      }
+                      onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                       placeholder="¿Algo que el profesional deba saber?"
                       rows={3}
                     />
@@ -375,6 +445,7 @@ const handleContinueToPayment = () => {
                 <CardHeader>
                   <CardTitle>Resumen</CardTitle>
                 </CardHeader>
+
                 <CardContent className="space-y-4">
                   {selectedDate && (
                     <div className="flex items-start gap-3">
@@ -393,9 +464,7 @@ const handleContinueToPayment = () => {
                       <Clock className="w-5 h-5 text-accent mt-0.5" />
                       <div>
                         <p className="font-medium text-sm">Hora</p>
-                        <p className="text-sm text-muted-foreground">
-                          {selectedTime}
-                        </p>
+                        <p className="text-sm text-muted-foreground">{selectedTime}</p>
                       </div>
                     </div>
                   )}
@@ -423,6 +492,7 @@ const handleContinueToPayment = () => {
                     disabled={
                       !selectedDate ||
                       !selectedTime ||
+                      !selectedCitaId ||
                       !formData.name ||
                       !formData.email ||
                       !formData.phone
