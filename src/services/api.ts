@@ -1,4 +1,4 @@
-import { API_BASE_URL, API_ENDPOINTS, buildApiUrl } from '@/config/constants';
+import { API_BASE_URL, API_ENDPOINTS, buildApiUrl } from "@/config/constants";
 
 /**
  * Cliente HTTP personalizado para comunicación con el backend
@@ -9,8 +9,8 @@ export interface BookingConfirmPayload {
   professionalName: string;
   profession: string;
   price: number;
-  date: string;          // ej: "Lunes 2 de diciembre, 2025" (por ahora)
-  time: string;          // ej: "10:00"
+  date: string; // ej: "Lunes 2 de diciembre, 2025" (por ahora)
+  time: string; // ej: "10:00"
   location: string;
   customer: {
     name: string;
@@ -19,10 +19,10 @@ export interface BookingConfirmPayload {
     notes?: string;
   };
   payment: {
-    method: string;      // "credit-card"
-    cardLast4: string;   // últimos 4 dígitos (simulado)
+    method: string; // "credit-card"
+    cardLast4: string; // últimos 4 dígitos (simulado)
     amount: number;
-    currency: string;    // "CLP"
+    currency: string; // "CLP"
   };
 }
 
@@ -33,7 +33,7 @@ class ApiClient {
   constructor() {
     this.baseUrl = API_BASE_URL;
     this.defaultHeaders = {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     };
   }
 
@@ -58,77 +58,79 @@ class ApiClient {
   /**
    * Método genérico para hacer peticiones HTTP
    */
- private async request<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const url = `${this.baseUrl}${endpoint}`;
+  private async request<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
+    const url = `${this.baseUrl}${endpoint}`;
 
-  const config: RequestInit = {
-    ...options,
-    headers: {
-      ...this.defaultHeaders,
-      ...options.headers,
-    },
-  };
+    const config: RequestInit = {
+      ...options,
+      headers: {
+        ...this.defaultHeaders,
+        ...options.headers,
+      },
+    };
 
-  try {
-    console.log(
-      "➡️ FETCH",
-      config.method ?? "GET",
-      url,
-      "headers:",
-      config.headers
-    );
-    const response = await fetch(url, config);
-
-    // 204 No Content → devolvemos objeto vacío
-    if (response.status === 204) {
-      return {} as T;
-    }
-
-    const text = await response.text();
-
-    // Si no hay cuerpo, devolvemos {}
-    if (!text) {
-      if (!response.ok) {
-        throw new Error(response.statusText || `Error ${response.status}`);
-      }
-      return {} as T;
-    }
-
-    // Intentamos parsear JSON
-    let data: any;
     try {
-      data = JSON.parse(text);
-    } catch (e) {
-      console.warn("Respuesta no es JSON válido, devolviendo texto crudo:", text);
-      data = text;
-    }
+      console.log(
+        "➡️ FETCH",
+        config.method ?? "GET",
+        url,
+        "headers:",
+        config.headers
+      );
+      const response = await fetch(url, config);
 
-    if (!response.ok) {
-      const message =
-        (data && data.message) ||
-        (typeof data === "string" ? data : "") ||
-        response.statusText ||
-        `Error ${response.status}`;
-      throw new Error(message);
-    }
+      // 204 No Content → devolvemos objeto vacío
+      if (response.status === 204) {
+        return {} as T;
+      }
 
-    return data as T;
-  } catch (error) {
-    console.error("API Request Error:", error);
-    throw error;
+      const text = await response.text();
+
+      // Si no hay cuerpo, devolvemos {}
+      if (!text) {
+        if (!response.ok) {
+          throw new Error(response.statusText || `Error ${response.status}`);
+        }
+        return {} as T;
+      }
+
+      // Intentamos parsear JSON
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.warn(
+          "Respuesta no es JSON válido, devolviendo texto crudo:",
+          text
+        );
+        data = text;
+      }
+
+      if (!response.ok) {
+        const message =
+          (data && data.message) ||
+          (typeof data === "string" ? data : "") ||
+          response.statusText ||
+          `Error ${response.status}`;
+        throw new Error(message);
+      }
+
+      return data as T;
+    } catch (error) {
+      console.error("API Request Error:", error);
+      throw error;
+    }
   }
-}
-
 
   /**
    * GET request
    */
   async get<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, {
-      method: 'GET',
+      method: "GET",
     });
   }
 
@@ -137,7 +139,7 @@ class ApiClient {
    */
   async post<T>(endpoint: string, data?: any): Promise<T> {
     return this.request<T>(endpoint, {
-      method: 'POST',
+      method: "POST",
       body: data ? JSON.stringify(data) : undefined,
     });
   }
@@ -147,7 +149,7 @@ class ApiClient {
    */
   async put<T>(endpoint: string, data?: any): Promise<T> {
     return this.request<T>(endpoint, {
-      method: 'PUT',
+      method: "PUT",
       body: data ? JSON.stringify(data) : undefined,
     });
   }
@@ -157,7 +159,7 @@ class ApiClient {
    */
   async delete<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, {
-      method: 'DELETE',
+      method: "DELETE",
     });
   }
 }
@@ -184,8 +186,7 @@ export const usuarioService = {
 export const historialService = {
   list: () => apiClient.get(`/historial`),
   get: (id: string) => apiClient.get(`/historial/${id}`),
-  create: (id: string, data: any) =>
-    apiClient.post(`/historial/${id}`, data),
+  create: (id: string, data: any) => apiClient.post(`/historial/${id}`, data),
   delete: (id: string) => apiClient.delete(`/historial/${id}`),
 };
 
@@ -201,7 +202,23 @@ export const clienteService = {
     apiClient.post(API_ENDPOINTS.CLIENTE.UPDATE(id), data),
   delete: (id: string) => apiClient.delete(API_ENDPOINTS.CLIENTE.DELETE(id)),
 };
-  
+export const comentariosService = {
+  getAll: () => apiClient.get("/comentarios"),
+
+  get: (id: string) => apiClient.get(`/comentarios/${id}`),
+
+  getByProfesional: (idProfesional: string) =>
+    apiClient.get(`/comentarios/profesional/${idProfesional}`),
+
+  getByProfesionalAndCliente: (idProfesional: string, idCliente: string) =>
+    apiClient.get(`/comentarios/profesional/${idProfesional}/cliente/${idCliente}`),
+
+  create: (id: string, payload: any) =>
+    apiClient.post(`/comentarios/${id}`, payload),
+
+  delete: (id: string) => apiClient.delete(`/comentarios/${id}`),
+};
+
 /**
  * Servicio de Profesionales
  */
@@ -246,7 +263,6 @@ export const citaService = {
     apiClient.get(`/cita/profesional/${idProfesional}`),
 };
 
-
 /**
  * Servicio de Pagos
  */
@@ -279,24 +295,26 @@ export const rubroService = {
 export const authService = {
   login: (correo: string, clave: string) =>
     apiClient.post(`/usuario/login`, { correo, clave }),
-    azureSync: (data: { correo: string; nombre: string; accessToken?: string }) =>
+  azureSync: (data: { correo: string; nombre: string; accessToken?: string }) =>
     apiClient.post(`/usuario/azure-sync`, data),
-  completeOnboarding: (userId: string, data: {
-    nombre: string;
-    apellido: string;
-    telefono?: string;
-    foto_url?: string;
-    userType: string;
-    id_profesion?: string;
-    id_rubro?: string;
-    descripcion?: string;
-    experiencia?: string;
-    pais?: string;
-    ciudad?: string;
-    servicios?: string;
-    precioHora?: number;
-  }) =>
-    apiClient.put(`/usuario/${userId}/complete-onboarding`, data),
+  completeOnboarding: (
+    userId: string,
+    data: {
+      nombre: string;
+      apellido: string;
+      telefono?: string;
+      foto_url?: string;
+      userType: string;
+      id_profesion?: string;
+      id_rubro?: string;
+      descripcion?: string;
+      experiencia?: string;
+      pais?: string;
+      ciudad?: string;
+      servicios?: string;
+      precioHora?: number;
+    }
+  ) => apiClient.put(`/usuario/${userId}/complete-onboarding`, data),
 };
 
 /**
@@ -313,5 +331,6 @@ export const useApi = () => {
     rubros: rubroService,
     auth: authService,
     historial: historialService,
+    comentarios: comentariosService,
   };
 };
