@@ -145,6 +145,7 @@ const { professional, selectedDate, selectedTime, selectedCitaId, customerData, 
         id_tipo_cita: "presencial",       // o un id_tipo_cita válido si ya tienes
         id_pago: pagoId,
         comentario: customerData.notes || "",
+        estado: "PENDIENTE"
       });
 
       // 3) Registrar historial
