@@ -63,6 +63,14 @@ interface Appointment {
   price: number;
 }
 
+type EstadoCita =
+  | "DISPONIBILIDAD"
+  | "PENDIENTE"
+  | "ACEPTADA"
+  | "RECHAZADA"
+  | "COMPLETADA"
+  | "CANCELADA";
+
 interface CitaApi {
   id_cita: string;
   id_usuario_cliente: string;
@@ -73,6 +81,7 @@ interface CitaApi {
   calificacion: string;
   id_tipo_cita: string | null;
   id_pago: string;
+  estado?: EstadoCita | string | null;
 }
 
 interface ClienteApi {
@@ -92,14 +101,22 @@ export const ProfessionalDashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useAuth();
-  // ✅ profesionalId para crear disponibilidad
+
   const [idProfesional, setIdProfesional] = useState<string | null>(null);
+
   type TimeRange = { enabled: boolean; start: string; end: string };
-  // ✅ Modal disponibilidad
+
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
+
   const [loading, setLoading] = useState(true);
-  const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
+
+  // ✅ ahora es “próximas citas”
+  const [upcomingAppointments, setUpcomingAppointments] = useState<
+    Appointment[]
+  >([]);
+
   const [pendingRequests, setPendingRequests] = useState<Appointment[]>([]);
+
   const [stats, setStats] = useState({
     totalBookings: 0,
     monthlyEarnings: 0,
@@ -109,10 +126,8 @@ export const ProfessionalDashboard = () => {
     completedThisMonth: 0,
   });
 
-  // ✅ Guardamos las citas reales (raw) para poder editar con seguridad
   const [citaById, setCitaById] = useState<Record<string, CitaApi>>({});
 
-  // ✅ Edit modal state
   const [editOpen, setEditOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
@@ -121,10 +136,11 @@ export const ProfessionalDashboard = () => {
     comentario: "",
     id_tipo_cita: "",
   });
+
   const [actionLoading, setActionLoading] = useState(false);
 
-  // ✅ Delete confirm state
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
   const [availabilityForm, setAvailabilityForm] = useState({
     dateFrom: "",
     dateTo: "",
@@ -137,6 +153,7 @@ export const ProfessionalDashboard = () => {
       { enabled: false, start: "19:00", end: "21:00" },
     ] as TimeRange[],
   });
+
   const getStatusIcon = (status: Appointment["status"]) => {
     switch (status) {
       case "confirmada":
@@ -155,7 +172,6 @@ export const ProfessionalDashboard = () => {
     return (user as any).id_usuario || (user as any).id || null;
   }, [user]);
 
-  //helpers de fechas
   const timeToMinutes = (t: string) => {
     const [hh, mm] = t.split(":").map((x) => parseInt(x, 10));
     if (Number.isNaN(hh) || Number.isNaN(mm)) return NaN;
@@ -186,11 +202,65 @@ export const ProfessionalDashboard = () => {
   };
 
   const makeId = () => {
-    // crypto.randomUUID en navegadores modernos
-    // fallback simple por si acaso
     return (globalThis.crypto as any)?.randomUUID
       ? (globalThis.crypto as any).randomUUID()
       : `cita_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  };
+
+  const normalizeEstado = (c: CitaApi) => {
+    const hasClient =
+      !!c.id_usuario_cliente && c.id_usuario_cliente.trim() !== "";
+    const raw = (c.estado ?? "").toString().trim().toUpperCase();
+    if (raw) return raw;
+    return hasClient ? "PENDIENTE" : "DISPONIBILIDAD";
+  };
+
+  const updateEstado = async (
+    idCita: string,
+    nuevoEstado: "ACEPTADA" | "RECHAZADA"
+  ) => {
+    const raw = citaById[idCita];
+    if (!raw) return;
+
+    const hasClient =
+      !!raw.id_usuario_cliente && raw.id_usuario_cliente.trim() !== "";
+    if (!hasClient) {
+      toast({
+        variant: "destructive",
+        title: "No permitido",
+        description:
+          "Solo puedes aceptar/rechazar citas que tengan un cliente asignado.",
+      });
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+
+      const payload: CitaApi = {
+        ...raw,
+        estado: nuevoEstado, // ✅ persiste en BD
+        // ✅ NO se borra id_usuario_cliente en RECHAZADA (historial)
+      };
+
+      await citaService.update(idCita, payload);
+
+      toast({
+        title: nuevoEstado === "ACEPTADA" ? "Cita aceptada" : "Cita rechazada",
+        description: "Estado actualizado correctamente.",
+      });
+
+      await loadData();
+    } catch (e: any) {
+      console.error("Error actualizando estado:", e);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: e?.message || "No se pudo actualizar el estado.",
+      });
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const createAvailability = async () => {
@@ -236,7 +306,6 @@ export const ProfessionalDashboard = () => {
       return;
     }
 
-    // Validar rangos
     for (const r of enabledRanges) {
       const s = timeToMinutes(r.start);
       const e = timeToMinutes(r.end);
@@ -250,7 +319,6 @@ export const ProfessionalDashboard = () => {
       }
     }
 
-    // Duplicados existentes: (fecha|hora)
     const existingKeys = new Set<string>();
     Object.values(citaById).forEach((c) => {
       if (c.id_usuario_profesional === idProfesional && c.fecha && c.hora) {
@@ -268,9 +336,7 @@ export const ProfessionalDashboard = () => {
       return;
     }
 
-    // Generar slots
     const toCreate: Array<{ fecha: string; hora: string }> = [];
-
     for (const day of days) {
       for (const r of enabledRanges) {
         const startM = timeToMinutes(r.start);
@@ -279,9 +345,7 @@ export const ProfessionalDashboard = () => {
         for (let t = startM; t + duration <= endM; t += duration) {
           const hora = minutesToTime(t);
           const key = `${day}|${hora}`;
-          if (!existingKeys.has(key)) {
-            toCreate.push({ fecha: day, hora });
-          }
+          if (!existingKeys.has(key)) toCreate.push({ fecha: day, hora });
         }
       }
     }
@@ -297,14 +361,13 @@ export const ProfessionalDashboard = () => {
     try {
       setActionLoading(true);
 
-      // ✅ Crear en backend (secuencial para no saturar)
       let created = 0;
       for (const slot of toCreate) {
         const id = makeId();
 
         const payload: CitaApi = {
           id_cita: id,
-          id_usuario_cliente: "", // ✅ disponible
+          id_usuario_cliente: "",
           id_usuario_profesional: idProfesional,
           fecha: slot.fecha,
           hora: slot.hora,
@@ -312,6 +375,7 @@ export const ProfessionalDashboard = () => {
           calificacion: "",
           id_tipo_cita: id_tipo_cita || "DISPONIBILIDAD",
           id_pago: "",
+          estado: "DISPONIBILIDAD",
         };
 
         await citaService.create(id, payload);
@@ -337,7 +401,6 @@ export const ProfessionalDashboard = () => {
     }
   };
 
-  // ✅ Cargador reutilizable (para recargar después de editar/eliminar)
   const loadData = useCallback(async () => {
     if (!user) {
       setLoading(false);
@@ -358,7 +421,6 @@ export const ProfessionalDashboard = () => {
     try {
       setLoading(true);
 
-      // 1) Buscar registro en usuario_profesional vinculado a este usuario
       const profesionales =
         (await profesionalService.list()) as ProfesionalApi[];
       const profesionalActual = profesionales.find(
@@ -375,15 +437,13 @@ export const ProfessionalDashboard = () => {
         return;
       }
 
-      const idProfesional = profesionalActual.id_usuario_profesional;
-      setIdProfesional(idProfesional);
-      // 2) Citas del profesional
-      const citas = (await citaService.getByProfesional(
-        idProfesional
-      )) as CitaApi[];
+      const profId = profesionalActual.id_usuario_profesional;
+      setIdProfesional(profId);
+
+      const citas = (await citaService.getByProfesional(profId)) as CitaApi[];
 
       if (!Array.isArray(citas) || citas.length === 0) {
-        setTodayAppointments([]);
+        setUpcomingAppointments([]);
         setPendingRequests([]);
         setCitaById({});
         setStats({
@@ -397,21 +457,17 @@ export const ProfessionalDashboard = () => {
         return;
       }
 
-      // ✅ guardar raw
       const rawMap: Record<string, CitaApi> = {};
       for (const c of citas) rawMap[c.id_cita] = c;
       setCitaById(rawMap);
 
-      // 3) Precio base
       const precioBase = (profesionalActual.precioHora ??
         profesionalActual.precio_hora ??
         0) as number;
 
-      // 4) Mapear clientes desde /usuario
       const clienteIds = Array.from(
         new Set(citas.map((c) => c.id_usuario_cliente).filter(Boolean))
       );
-
       const clienteMap = new Map<string, ClienteApi>();
 
       await Promise.all(
@@ -428,8 +484,6 @@ export const ProfessionalDashboard = () => {
       const now = new Date();
       const todayY = now.getFullYear();
       const todayM = now.getMonth();
-      const todayD = now.getDate();
-
       const currentMonth = todayM;
       const currentYear = todayY;
 
@@ -438,30 +492,22 @@ export const ProfessionalDashboard = () => {
 
       for (const cita of citas) {
         const cli = clienteMap.get(cita.id_usuario_cliente);
-        const isDisponible =
-          !cita.id_usuario_cliente || cita.id_usuario_cliente.trim() === "";
-        const clientName = isDisponible
+        const hasClient =
+          !!cita.id_usuario_cliente && cita.id_usuario_cliente.trim() !== "";
+        const clientName = !hasClient
           ? "Disponible"
           : cli && (cli.nombre || cli.apellido)
           ? `${cli.nombre ?? ""} ${cli.apellido ?? ""}`.trim()
           : cita.id_usuario_cliente || "Cliente";
 
         const dateTime = new Date(`${cita.fecha}T${cita.hora}:00`);
-
-        let isToday = false;
-        let isFuture = true;
-
-        if (!isNaN(dateTime.getTime())) {
-          isToday =
-            dateTime.getFullYear() === todayY &&
-            dateTime.getMonth() === todayM &&
-            dateTime.getDate() === todayD;
-
-          isFuture = dateTime.getTime() >= now.getTime();
-        }
+        const isValidDate = !isNaN(dateTime.getTime());
+        const isFuture = isValidDate
+          ? dateTime.getTime() >= now.getTime()
+          : true;
 
         let status: Appointment["status"];
-        if (isFuture) status = isToday ? "confirmada" : "pendiente";
+        if (isFuture) status = "pendiente";
         else status = "completada";
 
         if (cita.calificacion) {
@@ -481,17 +527,48 @@ export const ProfessionalDashboard = () => {
         });
       }
 
-      const todayList = allAppointments.filter((a) => {
-        const d = new Date(`${a.date}T${a.time}:00`);
-        return (
-          !isNaN(d.getTime()) &&
-          d.getFullYear() === todayY &&
-          d.getMonth() === todayM &&
-          d.getDate() === todayD
-        );
-      });
+      // ✅ PRÓXIMAS CITAS DEL USUARIO (profesional):
+      // - futuras
+      // - con cliente
+      // - excluye RECHAZADA/CANCELADA/DISPONIBILIDAD
+      const upcomingList = allAppointments
+        .filter((a) => {
+          const raw = rawMap[a.id];
+          if (!raw) return false;
 
+          const hasClient =
+            !!raw.id_usuario_cliente && raw.id_usuario_cliente.trim() !== "";
+          if (!hasClient) return false;
+
+          const estado = normalizeEstado(raw);
+          if (
+            estado === "RECHAZADA" ||
+            estado === "CANCELADA" ||
+            estado === "DISPONIBILIDAD"
+          )
+            return false;
+
+          const d = new Date(`${a.date}T${a.time}:00`);
+          return !isNaN(d.getTime()) && d.getTime() >= now.getTime();
+        })
+        .sort((a, b) => {
+          const da = new Date(`${a.date}T${a.time}:00`).getTime();
+          const db = new Date(`${b.date}T${b.time}:00`).getTime();
+          return da - db;
+        });
+
+      // ✅ Solicitudes Pendientes (estado PENDIENTE con cliente y futura)
       const pendingList = allAppointments.filter((a) => {
+        const raw = rawMap[a.id];
+        if (!raw) return false;
+
+        const hasClient =
+          !!raw.id_usuario_cliente && raw.id_usuario_cliente.trim() !== "";
+        if (!hasClient) return false;
+
+        const estado = normalizeEstado(raw);
+        if (estado !== "PENDIENTE") return false;
+
         const d = new Date(`${a.date}T${a.time}:00`);
         return !isNaN(d.getTime()) && d.getTime() > now.getTime();
       });
@@ -519,7 +596,7 @@ export const ProfessionalDashboard = () => {
         totalReviews = reviews.length;
       }
 
-      setTodayAppointments(todayList);
+      setUpcomingAppointments(upcomingList);
       setPendingRequests(pendingList);
       setStats({
         totalBookings,
@@ -545,7 +622,6 @@ export const ProfessionalDashboard = () => {
     loadData();
   }, [loadData]);
 
-  // ✅ abrir edición
   const openEdit = (idCita: string) => {
     const raw = citaById[idCita];
     if (!raw) {
@@ -567,7 +643,6 @@ export const ProfessionalDashboard = () => {
     setEditOpen(true);
   };
 
-  // ✅ guardar edición
   const saveEdit = async () => {
     if (!editingId) return;
 
@@ -610,7 +685,6 @@ export const ProfessionalDashboard = () => {
     }
   };
 
-  // ✅ eliminar cita
   const confirmDelete = async () => {
     if (!deleteId) return;
     try {
@@ -742,43 +816,54 @@ export const ProfessionalDashboard = () => {
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* Citas de Hoy */}
+        {/* ✅ PRÓXIMAS CITAS */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <Calendar className="w-5 h-5" />
-                Citas de Hoy
+                Próximas Citas
               </CardTitle>
               <Badge variant="secondary">
-                {loading ? "…" : `${todayAppointments.length} citas`}
+                {loading ? "…" : `${upcomingAppointments.length} citas`}
               </Badge>
             </div>
           </CardHeader>
+
           <CardContent>
             {loading ? (
               <div className="text-muted-foreground py-6 text-center">
-                Cargando citas de hoy...
+                Cargando próximas citas...
               </div>
-            ) : todayAppointments.length === 0 ? (
+            ) : upcomingAppointments.length === 0 ? (
               <div className="text-muted-foreground py-6 text-center">
-                No tienes citas agendadas para hoy.
+                No tienes próximas citas agendadas.
               </div>
             ) : (
               <div className="space-y-3">
-                {todayAppointments.map((apt) => (
+                {upcomingAppointments.map((apt) => (
                   <div
                     key={apt.id}
                     className="flex items-center gap-4 p-4 border rounded-xl hover:bg-muted/50 transition-colors"
                   >
-                    <div className="flex items-center gap-2 min-w-[80px]">
+                    <div className="flex items-center gap-2 min-w-[120px]">
                       <Clock className="w-4 h-4 text-muted-foreground" />
-                      <span className="font-semibold">{apt.time}</span>
+                      <span className="font-semibold">
+                        {apt.date} {apt.time}
+                      </span>
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="font-medium truncate">{apt.client}</p>
+                        {(() => {
+                          const e = normalizeEstado(citaById[apt.id] as any);
+                          return e === "ACEPTADA" || e === "PENDIENTE" ? (
+                            <Badge variant="outline" className="text-xs">
+                              {e}
+                            </Badge>
+                          ) : null;
+                        })()}
                         {getStatusIcon(apt.status)}
                       </div>
                       <p className="text-sm text-muted-foreground">
@@ -792,9 +877,8 @@ export const ProfessionalDashboard = () => {
                       </p>
                     </div>
 
-                    {/* ✅ Acciones */}
                     <div className="flex gap-1">
-                      <Button variant="ghost" size="icon">
+                      <Button variant="ghost" size="icon" disabled>
                         <MessageSquare className="w-4 h-4" />
                       </Button>
 
@@ -844,61 +928,77 @@ export const ProfessionalDashboard = () => {
               </p>
             ) : (
               <div className="space-y-3">
-                {pendingRequests.map((req) => (
-                  <div key={req.id} className="p-3 border rounded-lg space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium">{req.client}</p>
-                      <Badge variant="outline" className="text-xs">
-                        {req.date}
-                      </Badge>
-                    </div>
+                {pendingRequests.map((req) => {
+                  const raw = citaById[req.id];
+                  const hasClient =
+                    !!raw?.id_usuario_cliente &&
+                    raw.id_usuario_cliente.trim() !== "";
+                  const estado = raw ? normalizeEstado(raw) : "";
+                  const canDecide = hasClient && estado === "PENDIENTE";
 
-                    <p className="text-sm text-muted-foreground">
-                      {req.service} · {req.time}
-                    </p>
+                  return (
+                    <div
+                      key={req.id}
+                      className="p-3 border rounded-lg space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="font-medium">{req.client}</p>
+                        <Badge variant="outline" className="text-xs">
+                          {req.date}
+                        </Badge>
+                      </div>
 
-                    {/* ✅ Acciones editar / eliminar */}
-                    <div className="flex gap-2 pt-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => openEdit(req.id)}
-                        disabled={actionLoading}
-                      >
-                        <Edit2 className="w-3 h-3 mr-1" />
-                        Editar
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => setDeleteId(req.id)}
-                        disabled={actionLoading}
-                      >
-                        <Trash2 className="w-3 h-3 mr-1 text-destructive" />
-                        Eliminar
-                      </Button>
-                    </div>
+                      <p className="text-sm text-muted-foreground">
+                        {req.service} · {req.time}
+                      </p>
 
-                    {/* (por ahora dejas aceptar/rechazar deshabilitado como lo tenías) */}
-                    <div className="flex gap-2 pt-1">
-                      <Button size="sm" className="flex-1" disabled>
-                        <CheckCircle className="w-3 h-3 mr-1" />
-                        Aceptar
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="flex-1"
-                        disabled
-                      >
-                        <XCircle className="w-3 h-3 mr-1" />
-                        Rechazar
-                      </Button>
+                      <div className="flex gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => openEdit(req.id)}
+                          disabled={actionLoading}
+                        >
+                          <Edit2 className="w-3 h-3 mr-1" />
+                          Editar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => setDeleteId(req.id)}
+                          disabled={actionLoading}
+                        >
+                          <Trash2 className="w-3 h-3 mr-1 text-destructive" />
+                          Eliminar
+                        </Button>
+                      </div>
+
+                      <div className="flex gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          className="flex-1"
+                          disabled={!canDecide || actionLoading}
+                          onClick={() => updateEstado(req.id, "ACEPTADA")}
+                        >
+                          <CheckCircle className="w-3 h-3 mr-1" />
+                          Aceptar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1"
+                          disabled={!canDecide || actionLoading}
+                          onClick={() => updateEstado(req.id, "RECHAZADA")}
+                        >
+                          <XCircle className="w-3 h-3 mr-1" />
+                          Rechazar
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
@@ -936,28 +1036,7 @@ export const ProfessionalDashboard = () => {
         </CardContent>
       </Card>
 
-      {/* Info Banner */}
-      <Card className="border-primary/20 bg-primary/5">
-        <CardContent className="pt-6">
-          <div className="flex items-start gap-4">
-            <div className="p-3 rounded-full bg-primary/10 flex-shrink-0">
-              <TrendingUp className="w-6 h-6 text-primary" />
-            </div>
-            <div>
-              <h3 className="font-semibold mb-2">
-                Funcionalidades Completas Próximamente
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Este panel ya está leyendo tus citas reales. Más adelante podrás
-                gestionar estados (aceptar / rechazar), ver estadísticas
-                avanzadas y responder a clientes desde aquí.
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ✅ MODAL EDITAR */}
+      {/* MODAL EDITAR */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -1025,7 +1104,8 @@ export const ProfessionalDashboard = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* ✅ MODAL DISPONIBILIDAD */}
+
+      {/* MODAL DISPONIBILIDAD */}
       <Dialog open={availabilityOpen} onOpenChange={setAvailabilityOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -1190,7 +1270,7 @@ export const ProfessionalDashboard = () => {
         </DialogContent>
       </Dialog>
 
-      {/* ✅ CONFIRM ELIMINAR */}
+      {/* CONFIRM ELIMINAR */}
       <AlertDialog
         open={!!deleteId}
         onOpenChange={(open) => !open && setDeleteId(null)}
