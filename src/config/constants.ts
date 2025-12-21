@@ -13,11 +13,11 @@ const getApiBaseUrl = (): string => {
 
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     // Entorno local - Backend en Docker
-    return 'http://localhost:8080';
+    return 'http://3.211.67.67:8080';
   } else {
     // Producción - Cambiar por tu IP de EC2 o dominio
     // TODO: Reemplazar con tu IP de EC2 cuando despliegues
-    return 'http://localhost:8080';
+    return 'http://3.211.67.67:8080';
   }
 };
 
